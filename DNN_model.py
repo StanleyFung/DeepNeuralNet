@@ -169,8 +169,8 @@ def compute_cost(Z_final, Y, isBinary):
     # e.g. [batch_size, num_classes] and the same dtype (either float16, float32, or float64).
     # Z_final and Y is of shape (num_classes, batch_size)
     logits = tf.transpose(Z_final)
-    labels = tf.transpose(Y)
-    
+    labels = tf.transpose(Y)    
+
     cost = None
     
     if isBinary: 
@@ -227,14 +227,14 @@ KEY_KEEP_PROB = "keep_prob"
 KEY_MINI_BATCH_SIZE = "minibatch_size"
 
 def train_with_hyperparameter_bundle(x_train, y_train, x_test, y_test, bundle, print_summary = False):
-    return train(x_train, y_train, x_test, y_test, bundle[KEY_LAYER_DIMS], bundle[KEY_LEARNING_RATE], bundle[KEY_NUM_EPOCHS], bundle[KEY_KEEP_PROB], bundle[KEY_MINI_BATCH_SIZE], print_summary)        
+    return train_model(x_train, y_train, x_test, y_test, bundle[KEY_LAYER_DIMS], bundle[KEY_LEARNING_RATE], bundle[KEY_NUM_EPOCHS], bundle[KEY_KEEP_PROB], bundle[KEY_MINI_BATCH_SIZE], print_summary)        
 
-def train(X_train, Y_train, X_test, Y_test, layer_dims = [1], learning_rate = 0.0001, num_epochs = 5000, keep_prob = 1.0, minibatch_size = 64, print_summary = False):
+def train_model(X_train, Y_train, X_test, Y_test, layer_dims, learning_rate = 0.0001, num_epochs = 5000, keep_prob = 1.0, minibatch_size = 64, print_summary = False):
     """
     Implements a L tensorflow neural network: LINEAR->RELU->LINEAR->RELU->...LINEAR->(SOFTMAX OR SIGMOID).
     Arguments:
         X_train -- training set, of shape (input size = n_x, number of training examples = m_train)
-        Y_train -- test set, of shape (output size = n_y, number of training examples = m_train)
+        Y_train -- test set, of shape (output size = n_y or numOfClasses, number of training examples = m_train)
 
                 # Binary classification, Y_train = [[0 1 0 1 ...] contains labels of value 0 or 1 scalar
 
@@ -262,12 +262,22 @@ def train(X_train, Y_train, X_test, Y_test, layer_dims = [1], learning_rate = 0.
     Returns:
         parameters -- parameters learnt by the model. They can then be used to predict.
     """
-    assert(all(item >= 0 for item in layer_dims), "Number of nodes must be positive for all layers")
-    
+    if len(layer_dims) == 0:
+        print "layer_dims can not be empty"
+        return None
+
+    if any(item < 0 for item in layer_dims):
+        print "Number of nodes must be positive for all layers"
+        return None
+
     is_binary_class = layer_dims[-1] <= 2    
     if print_summary:
         classification = "Binary" if layer_dims[-1] <= 2 else str(layer_dims[-1]) + "-class"
-        print "Training " + classification + "neural network with hyperparameters:"
+        classification += " classification"
+        print ''
+        print "----------------------"        
+        print ''
+        print  classification + " neural network with hyperparameters:"
         print 'layer_dims: {0} keep_prob: {1} learning_rate: {2} num_epochs: {3} minibatch_size: {4}'.format(str(layer_dims), keep_prob, learning_rate, num_epochs, minibatch_size)
     
     tf_ops.reset_default_graph()
@@ -288,6 +298,7 @@ def train(X_train, Y_train, X_test, Y_test, layer_dims = [1], learning_rate = 0.
     with tf.Session() as sess:
         sess.run(init)
         
+        print "Training underway..." 
         for epoch in range(num_epochs):
             epoch_cost = 0.
             num_minibatches = int(math.floor(m_train / minibatch_size)) 
@@ -313,8 +324,8 @@ def train(X_train, Y_train, X_test, Y_test, layer_dims = [1], learning_rate = 0.
             predictions_correct = tf.equal(prediction, tf.equal(Y_place,1.0))
             accuracy = tf.reduce_mean(tf.cast(predictions_correct, 'float') )        
   
-        # Calculate accuracy on the test set
-        train_accuracy = accuracy.eval({X_place: X_train, Y_place: Y_train, keep_prob_tf: 1.0})
+        # Calculate accuracy 
+        train_accuracy = accuracy.eval({X_place: X_train, Y_place: Y_train, keep_prob_tf: 1.0})        
         test_accuracy = accuracy.eval({X_place: X_test, Y_place: Y_test, keep_prob_tf: 1.0})      
 
         # Calculate precision, recall, and f1
@@ -344,11 +355,11 @@ def train(X_train, Y_train, X_test, Y_test, layer_dims = [1], learning_rate = 0.
             plt.title("Learning rate =" + str(learning_rate))
             plt.show()
 
-            print ("train_accuracy" + " : " + train_accuracy)
-            print ("test_accuracy" + " : " + test_accuracy)  
-            print ("precision" + " : " + precision)        
-            print ("recall" + " : " + recall)        
-            print ("f1score" + " : " + f1score)        
+            print ("train_accuracy" + " : " + str(train_accuracy))
+            print ("test_accuracy" + " : " + str(test_accuracy))  
+            print ("precision" + " : " + str(precision))        
+            print ("recall" + " : " + str(recall))        
+            print ("f1score" + " : " + str(f1score))        
 
         result = {
             KEY_PARAMETERS: parameters,
@@ -361,7 +372,7 @@ def train(X_train, Y_train, X_test, Y_test, layer_dims = [1], learning_rate = 0.
 
     return result
 
-def create_hyperparameter_bundle(layer_dims = [1], learning_rate = 0.0001, num_epochs = 5000, keep_prob = 1, minibatch_size = 64):
+def create_hyperparameter_bundle(layer_dims, learning_rate = 0.0001, num_epochs = 5000, keep_prob = 1, minibatch_size = 64):
     bundle = {
         KEY_LAYER_DIMS: layer_dims,
         KEY_KEEP_PROB: keep_prob,
@@ -373,14 +384,14 @@ def create_hyperparameter_bundle(layer_dims = [1], learning_rate = 0.0001, num_e
 
 def kfold(df, label_column_name, bundle, k = 10.0, print_summary = False):
     layer_dims = bundle[KEY_LAYER_DIMS]
-    is_binary_class = layer_dims[-1] <= 2
+    is_multi_class = layer_dims[-1] > 2
     m = len(df)
     folds = []
     permutation = list(np.random.permutation(m))
     shuffled = df.iloc[permutation]    
     fold_size = int(math.floor(m/k)) 
 
-    for i in range(0, k):
+    for i in range(0, int(k)):
         fold = None
         if i == k - 1:
             fold = shuffled[i*fold_size : m]        
@@ -396,16 +407,19 @@ def kfold(df, label_column_name, bundle, k = 10.0, print_summary = False):
         train = train[train['_merge'] == 'left_only']
         train = train.drop('_merge', axis = 1)
 
-        x_train = train.drop(label_column_name, axis = 1)
-        x_test = train[label_column_name].T.values
-        y_train = test.drop(label_column_name, axis = 1)
-        y_test = test[label_column_name].values
-        
-        if !is_binary_class:
-            y_test = dnn.one_hot_matrix(y_test, layer_dims[-1], axis = 0)
+        x_train = train.drop(label_column_name, axis = 1).T.values        
+        y_train = train[label_column_name].values
+        y_train = y_train.reshape(1, len(y_train))
 
-        model = train(x_train, y_train, x_test, y_test, , bundle[KEY_LEARNING_RATE], bundle[KEY_NUM_EPOCHS], bundle[KEY_KEEP_PROB], bundle[KEY_MINI_BATCH_SIZE], print_summary)        
+        x_test = test.drop(label_column_name, axis = 1).T.values
+        y_test = test[label_column_name].values
+        y_test = y_test.reshape(1, len(y_test))
+
+        if is_multi_class:
+            y_train = one_hot_matrix(y_train[0], layer_dims[-1], axis = 0)
+            y_test = one_hot_matrix(y_test[0], layer_dims[-1], axis = 0)        
+
+        model = train_model(x_train, y_train, x_test, y_test, bundle[KEY_LAYER_DIMS], bundle[KEY_LEARNING_RATE], bundle[KEY_NUM_EPOCHS], bundle[KEY_KEEP_PROB], bundle[KEY_MINI_BATCH_SIZE], print_summary)        
         accuracy_test_sum += model[KEY_ACCURACY_TEST]
 
     return accuracy_test_sum/(1.0*len(folds))
-
