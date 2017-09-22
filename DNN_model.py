@@ -98,15 +98,15 @@ def initialize_parameters(n_x, layer_dims):
                 
     return parameters
 
-def forward_propagation(X, parameters): 
+def forward_propagation_no_dropout(X, parameters): 
     """
     Implements the forward propagation for the model: LINEAR -> RELU -> LINEAR -> RELU -> ... -> LINEAR -> SOFTMAX
     Arguments:
-    X -- input dataset placeholder, of shape (input size, number of examples)
-    parameters -- python dictionary containing your parameters "W1", "b1", "W2", "b2", "W3", "b3"..."Wi", "bi"
-                  the shapes are given in initialize_parameters
+        X -- input dataset placeholder, of shape (input size, number of examples)
+        parameters -- python dictionary containing your parameters "W1", "b1", "W2", "b2", "W3", "b3"..."Wi", "bi"
+                      the shapes are given in initialize_parameters
     Returns:
-    Zi -- the output of the last LINEAR unit
+        Zi -- the output of the last LINEAR unit
     """
     Z = None
     A = None
@@ -129,11 +129,12 @@ def forward_propagation_with_dropout(X, parameters, keep_prob_tf):
     """
     Implements the forward propagation for the model: LINEAR -> RELU -> LINEAR -> RELU -> ... -> LINEAR -> SOFTMAX
     Arguments:
-    X -- input dataset placeholder, of shape (input size, number of examples)
-    parameters -- python dictionary containing your parameters "W1", "b1", "W2", "b2", "W3", "b3"..."Wi", "bi"
-                  the shapes are given in initialize_parameters
+        X -- input dataset placeholder, of shape (input size, number of examples)
+        parameters -- python dictionary containing your parameters "W1", "b1", "W2", "b2", "W3", "b3"..."Wi", "bi"
+                      the shapes are given in initialize_parameters
+        keep_prob_tf - tensor for dropout probability place holder
     Returns:
-    Zi -- the output of the last LINEAR unit
+        Zi -- the output of the last LINEAR unit
     """
     Z = None
     A = None
@@ -193,7 +194,7 @@ def predict(X, params_from_train, is_binary_class):
 
     x_tf = tf.placeholder(dtype=tf.float32, shape = (X.shape[0], None)) 
     
-    z_tf = forward_propagation(x_tf, params)
+    z_tf = forward_propagation_no_dropout(x_tf, params)
     
     with tf.Session() as sess:
         prediction = tf.argmax(z_tf)
@@ -288,11 +289,9 @@ def train(X_train, Y_train, X_test, Y_test, layer_dims, keep_prob = 1, learning_
             prediction = tf.greater(tf.sigmoid(forward_prop_place),0.5)
             predictions_correct = tf.equal(prediction, tf.equal(Y_place,1.0))
             accuracy = tf.reduce_mean(tf.cast(predictions_correct, 'float') )        
-
-        predictionOutput = sess.run(tf.cast(prediction, 'float'), feed_dict = {X_place: X_train, keep_prob_tf: 1.0})        
-        
+  
         # Calculate accuracy on the test set
         print ("Train Accuracy:", accuracy.eval({X_place: X_train, Y_place: Y_train, keep_prob_tf: 1.0}))
         print ("Test Accuracy:", accuracy.eval({X_place: X_test, Y_place: Y_test, keep_prob_tf: 1.0}))         
 
-    return (predictionOutput, parameters)
+    return parameters
