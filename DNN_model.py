@@ -382,8 +382,15 @@ def create_hyperparameter_bundle(layer_dims, learning_rate = 0.0001, num_epochs 
     }
     return bundle
 
-def kfold(df, label_column_name, bundle, k = 10.0, print_summary = False):
+def format_dataframe_for_training(df, label_column_name, classification):
+    x = df.drop(label_column_name, axis = 1).T.values        
+    y = df[label_column_name].values
+    y = one_hot_matrix(y, classification, axis = 0)
+    return (x, y)
+
+def kfold(df, label_column_name, bundle, k = 10.0, print_summary = False):    
     layer_dims = bundle[KEY_LAYER_DIMS]
+    classification = layer_dims[-1]
     is_multi_class = layer_dims[-1] > 2
     m = len(df)
     folds = []
@@ -407,17 +414,8 @@ def kfold(df, label_column_name, bundle, k = 10.0, print_summary = False):
         train = train[train['_merge'] == 'left_only']
         train = train.drop('_merge', axis = 1)
 
-        x_train = train.drop(label_column_name, axis = 1).T.values        
-        y_train = train[label_column_name].values
-        y_train = y_train.reshape(1, len(y_train))
-
-        x_test = test.drop(label_column_name, axis = 1).T.values
-        y_test = test[label_column_name].values
-        y_test = y_test.reshape(1, len(y_test))
-
-        if is_multi_class:
-            y_train = one_hot_matrix(y_train[0], layer_dims[-1], axis = 0)
-            y_test = one_hot_matrix(y_test[0], layer_dims[-1], axis = 0)        
+        (x_train, y_train) = format_dataframe_for_training(train, label_column_name, classification)
+        (x_test, y_test) = format_dataframe_for_training(test, label_column_name, classification)
 
         model = train_model(x_train, y_train, x_test, y_test, bundle[KEY_LAYER_DIMS], bundle[KEY_LEARNING_RATE], bundle[KEY_NUM_EPOCHS], bundle[KEY_KEEP_PROB], bundle[KEY_MINI_BATCH_SIZE], print_summary)        
         accuracy_test_sum += model[KEY_ACCURACY_TEST]
