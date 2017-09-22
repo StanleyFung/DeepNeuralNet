@@ -204,7 +204,7 @@ def predict(X, params_from_train, is_binary_class):
                     
         result = sess.run(tf.cast(prediction, 'float'), feed_dict = {x_tf: X})
 
-    return result
+    return result[0]
 
 def train(X_train, Y_train, X_test, Y_test, layer_dims, keep_prob = 1, learning_rate = 0.0001, num_epochs = 500, minibatch_size = 64, print_cost = True):
     """
