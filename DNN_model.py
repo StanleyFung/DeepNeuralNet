@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import tensorflow as tf
+import sklearn.metrics as sklearn
 from tensorflow.python.framework import ops as tf_ops
 
 def one_hot_matrix(labels, C, axis): 
@@ -203,12 +204,34 @@ def predict(X, params_from_train, is_binary_class):
             prediction = tf.greater(tf.sigmoid(z_tf), 0.5)                    
                     
         result = sess.run(tf.cast(prediction, 'float'), feed_dict = {x_tf: X})
+    
+    # binary class returns array of shape (1, num_examples)
+    # argmax in multi class reduces to 1D array for you
+    if is_binary_class:
+        result = result[0]
 
-    return result[0]
+    return result
 
-def train(X_train, Y_train, X_test, Y_test, layer_dims, keep_prob = 1, learning_rate = 0.0001, num_epochs = 500, minibatch_size = 64, print_cost = True):
+# Keys for dictionary returned by dnn.train
+KEY_PARAMETERS = "params"
+KEY_ACCURACY_TRAIN = "accuracy_train"
+KEY_ACCURACY_TEST = "accuracy_test"
+KEY_PRECISION = "precision"
+KEY_RECALL = "recall"
+KEY_F1 = "f1"
+
+KEY_LAYER_DIMS = "layer_dims"
+KEY_LEARNING_RATE = "learning_rate"
+KEY_NUM_EPOCHS = "num_epochs"
+KEY_KEEP_PROB = "keep_prob"
+KEY_MINI_BATCH_SIZE = "minibatch_size"
+
+def train_with_hyperparameter_bundle(x_train, y_train, x_test, y_test, bundle, print_summary = False):
+    return train(x_train, y_train, x_test, y_test, bundle[KEY_LAYER_DIMS], bundle[KEY_LEARNING_RATE], bundle[KEY_NUM_EPOCHS], bundle[KEY_KEEP_PROB], bundle[KEY_MINI_BATCH_SIZE], print_summary)        
+
+def train(X_train, Y_train, X_test, Y_test, layer_dims = [1], learning_rate = 0.0001, num_epochs = 5000, keep_prob = 1.0, minibatch_size = 64, print_summary = False):
     """
-    Implements a L tensorflow neural network: LINEAR->RELU->LINEAR->RELU->...LINEAR->SOFTMAX.
+    Implements a L tensorflow neural network: LINEAR->RELU->LINEAR->RELU->...LINEAR->(SOFTMAX OR SIGMOID).
     Arguments:
         X_train -- training set, of shape (input size = n_x, number of training examples = m_train)
         Y_train -- test set, of shape (output size = n_y, number of training examples = m_train)
@@ -231,17 +254,24 @@ def train(X_train, Y_train, X_test, Y_test, layer_dims, keep_prob = 1, learning_
                     EG. layers_dims = [25, 7, 5, 1] 
                     this would be a DNN of n_X -> 25 -> 7 -> 5 -> 1
                     if number of nodes in last layer is > 1, we expect a multi class output
-        keep_prob -- value 0 - 1 of probability a node is kept in the neural net
+        keep_prob -- value from 0 - 1: probability a node is kept in the neural net during dropout
         learning_rate -- learning rate of the optimization
         num_epochs -- number of epochs of the optimization loop
         minibatch_size -- size of a minibatch
-        print_cost -- True to print the cost every 100 epochs
+        print_summary -- True to print info and progress during and after training
     Returns:
         parameters -- parameters learnt by the model. They can then be used to predict.
     """
+    assert(all(item >= 0 for item in layer_dims), "Number of nodes must be positive for all layers")
+    
+    is_binary_class = layer_dims[-1] <= 2    
+    if print_summary:
+        classification = "Binary" if layer_dims[-1] <= 2 else str(layer_dims[-1]) + "-class"
+        print "Training " + classification + "neural network with hyperparameters:"
+        print 'layer_dims: {0} keep_prob: {1} learning_rate: {2} num_epochs: {3} minibatch_size: {4}'.format(str(layer_dims), keep_prob, learning_rate, num_epochs, minibatch_size)
+    
     tf_ops.reset_default_graph()
     keep_prob_tf = tf.placeholder(tf.float32)
-    is_binary_class = layer_dims[-1] <= 2
     (n_x, m_train) = X_train.shape
     n_y = Y_train.shape[0]
     costs = []
@@ -251,6 +281,7 @@ def train(X_train, Y_train, X_test, Y_test, layer_dims, keep_prob = 1, learning_
     forward_prop_place = forward_propagation_with_dropout(X_place, parameters, keep_prob_tf)
     cost_func = compute_cost(forward_prop_place, Y_place, is_binary_class)
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost_func)
+    result = {}
 
     init = tf.global_variables_initializer()
     
@@ -266,32 +297,115 @@ def train(X_train, Y_train, X_test, Y_test, layer_dims, keep_prob = 1, learning_
                 _ , minibatch_cost = sess.run([optimizer, cost_func], feed_dict = { X_place: minibatch_X, Y_place: minibatch_Y, keep_prob_tf: keep_prob})        
                 epoch_cost += minibatch_cost / num_minibatches
             
-            if print_cost == True and epoch % 100 == 0:
-                print ("Cost after epoch %i: %f" % (epoch, epoch_cost))
-            if print_cost == True and epoch % 5 == 0: 
+            if print_summary == True and epoch % 5 == 0: 
                 costs.append(epoch_cost)
-    
-        plt.plot(np.squeeze(costs))
-        plt.ylabel('cost')
-        plt.xlabel('iterations (per tens)')
-        plt.title("Learning rate =" + str(learning_rate))
-        plt.show()
 
         parameters = sess.run(parameters)
-        print ("Parameters have been trained!")
                 
+        # Multi classification
         prediction = tf.argmax(forward_prop_place)
         predictions_correct = tf.equal(prediction, tf.argmax(Y_place))
         accuracy = tf.reduce_mean(tf.cast(predictions_correct, "float"))
         
         # Binary classification, Y_train = [[0 1 0 1 ...] contains labels of value 0 or 1 scalar
-        if layer_dims[-1] == 1:
+        if is_binary_class:
             prediction = tf.greater(tf.sigmoid(forward_prop_place),0.5)
             predictions_correct = tf.equal(prediction, tf.equal(Y_place,1.0))
             accuracy = tf.reduce_mean(tf.cast(predictions_correct, 'float') )        
   
         # Calculate accuracy on the test set
-        print ("Train Accuracy:", accuracy.eval({X_place: X_train, Y_place: Y_train, keep_prob_tf: 1.0}))
-        print ("Test Accuracy:", accuracy.eval({X_place: X_test, Y_place: Y_test, keep_prob_tf: 1.0}))         
+        train_accuracy = accuracy.eval({X_place: X_train, Y_place: Y_train, keep_prob_tf: 1.0})
+        test_accuracy = accuracy.eval({X_place: X_test, Y_place: Y_test, keep_prob_tf: 1.0})      
 
-    return parameters
+        # Calculate precision, recall, and f1
+        prediction_values_test = predict(X_test, parameters, is_binary_class)        
+
+        precision = None
+        recall = None
+        f1score = None
+
+        # http://scikit-learn.org/stable/modules/model_evaluation.html#precision-recall-f-measure-metrics
+        if is_binary_class:
+            # make sure true labels are given as first parameter
+            precision = sklearn.precision_score(Y_test[0], prediction_values_test)
+            recall = sklearn.recall_score(Y_test[0], prediction_values_test)
+            f1score = sklearn.f1_score(Y_test[0], prediction_values_test)
+        else:
+            precision = sklearn.precision_score(Y_test[0], prediction_values_test, average='micro')
+            recall = sklearn.recall_score(Y_test[0], prediction_values_test, average='micro')
+            f1score = sklearn.f1_score(Y_test[0], prediction_values_test, average='micro')
+
+        if print_summary:
+            print ("Done training!") 
+
+            plt.plot(np.squeeze(costs))
+            plt.ylabel('cost')
+            plt.xlabel('iterations (per tens)')
+            plt.title("Learning rate =" + str(learning_rate))
+            plt.show()
+
+            print ("train_accuracy" + " : " + train_accuracy)
+            print ("test_accuracy" + " : " + test_accuracy)  
+            print ("precision" + " : " + precision)        
+            print ("recall" + " : " + recall)        
+            print ("f1score" + " : " + f1score)        
+
+        result = {
+            KEY_PARAMETERS: parameters,
+            KEY_ACCURACY_TRAIN: train_accuracy,
+            KEY_ACCURACY_TEST : test_accuracy,
+            KEY_PRECISION : precision,
+            KEY_RECALL : recall,
+            KEY_F1: f1score
+        }
+
+    return result
+
+def create_hyperparameter_bundle(layer_dims = [1], learning_rate = 0.0001, num_epochs = 5000, keep_prob = 1, minibatch_size = 64):
+    bundle = {
+        KEY_LAYER_DIMS: layer_dims,
+        KEY_KEEP_PROB: keep_prob,
+        KEY_LEARNING_RATE: learning_rate,
+        KEY_NUM_EPOCHS: num_epochs,
+        KEY_MINI_BATCH_SIZE: minibatch_size
+    }
+    return bundle
+
+def kfold(df, label_column_name, bundle, k = 10.0, print_summary = False):
+    layer_dims = bundle[KEY_LAYER_DIMS]
+    is_binary_class = layer_dims[-1] <= 2
+    m = len(df)
+    folds = []
+    permutation = list(np.random.permutation(m))
+    shuffled = df.iloc[permutation]    
+    fold_size = int(math.floor(m/k)) 
+
+    for i in range(0, k):
+        fold = None
+        if i == k - 1:
+            fold = shuffled[i*fold_size : m]        
+        else:
+            fold = shuffled[i*fold_size : (i+1) * fold_size]        
+        folds.append(fold)  
+
+    accuracy_test_sum = 0     
+
+    for fold in folds:                
+        test = fold 
+        train = df.merge(fold, indicator=True, how='left')    
+        train = train[train['_merge'] == 'left_only']
+        train = train.drop('_merge', axis = 1)
+
+        x_train = train.drop(label_column_name, axis = 1)
+        x_test = train[label_column_name].T.values
+        y_train = test.drop(label_column_name, axis = 1)
+        y_test = test[label_column_name].values
+        
+        if !is_binary_class:
+            y_test = dnn.one_hot_matrix(y_test, layer_dims[-1], axis = 0)
+
+        model = train(x_train, y_train, x_test, y_test, , bundle[KEY_LEARNING_RATE], bundle[KEY_NUM_EPOCHS], bundle[KEY_KEEP_PROB], bundle[KEY_MINI_BATCH_SIZE], print_summary)        
+        accuracy_test_sum += model[KEY_ACCURACY_TEST]
+
+    return accuracy_test_sum/(1.0*len(folds))
+
