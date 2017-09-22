@@ -98,7 +98,34 @@ def initialize_parameters(n_x, layer_dims):
                 
     return parameters
 
-def forward_propagation(X, parameters, keep_prob_tf): 
+def forward_propagation(X, parameters): 
+    """
+    Implements the forward propagation for the model: LINEAR -> RELU -> LINEAR -> RELU -> ... -> LINEAR -> SOFTMAX
+    Arguments:
+    X -- input dataset placeholder, of shape (input size, number of examples)
+    parameters -- python dictionary containing your parameters "W1", "b1", "W2", "b2", "W3", "b3"..."Wi", "bi"
+                  the shapes are given in initialize_parameters
+    Returns:
+    Zi -- the output of the last LINEAR unit
+    """
+    Z = None
+    A = None
+    
+    for i in range(0, len(parameters)/2):
+        wKey = 'W' + str(i+1)
+        bKey = 'b' + str(i+1)
+        W = parameters[wKey]
+        b = parameters[bKey]
+        if i == 0:
+            Z = tf.add(tf.matmul(W,X), b)
+            A = tf.nn.relu(Z)
+        else:
+            Z = tf.add(tf.matmul(W,A), b) 
+            A = tf.nn.relu(Z)
+ 
+    return Z
+
+def forward_propagation_with_dropout(X, parameters, keep_prob_tf): 
     """
     Implements the forward propagation for the model: LINEAR -> RELU -> LINEAR -> RELU -> ... -> LINEAR -> SOFTMAX
     Arguments:
@@ -153,6 +180,31 @@ def compute_cost(Z_final, Y, isBinary):
 
     return cost
 
+def predict(X, params_from_train, is_binary_class):
+    result = None
+    params = {}
+    for i in range(0, len(params_from_train)/2):
+        wKey = 'W' + str(i+1)
+        bKey = 'b' + str(i+1)
+        W = params_from_train[wKey]
+        b = params_from_train[bKey]
+        params[wKey] = tf.convert_to_tensor(W)
+        params[bKey] = tf.convert_to_tensor(b)
+
+    x_tf = tf.placeholder(dtype=tf.float32, shape = (X.shape[0], None)) 
+    
+    z_tf = forward_propagation(x_tf, params)
+    
+    with tf.Session() as sess:
+        prediction = tf.argmax(z_tf)
+
+        if is_binary_class:            
+            prediction = tf.greater(tf.sigmoid(z_tf), 0.5)                    
+                    
+        result = sess.run(tf.cast(prediction, 'float'), feed_dict = {x_tf: X})
+
+    return result
+
 def train(X_train, Y_train, X_test, Y_test, layer_dims, keep_prob = 1, learning_rate = 0.0001, num_epochs = 500, minibatch_size = 64, print_cost = True):
     """
     Implements a L tensorflow neural network: LINEAR->RELU->LINEAR->RELU->...LINEAR->SOFTMAX.
@@ -195,7 +247,7 @@ def train(X_train, Y_train, X_test, Y_test, layer_dims, keep_prob = 1, learning_
     X_place = tf.placeholder(dtype=tf.float32, shape = (n_x, None)) 
     Y_place = tf.placeholder(dtype=tf.float32, shape = (n_y, None)) 
     parameters = initialize_parameters(n_x, layer_dims)
-    forward_prop_place = forward_propagation(X_place, parameters, keep_prob_tf)
+    forward_prop_place = forward_propagation_with_dropout(X_place, parameters, keep_prob_tf)
     cost_func = compute_cost(forward_prop_place, Y_place, is_binary_class)
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost_func)
 
