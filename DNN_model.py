@@ -295,7 +295,7 @@ def train_model(X_train, Y_train, X_test, Y_test, layer_dims, learning_rate = 0.
             num_minibatches = int(math.floor(m_train / minibatch_size)) 
             minibatches = random_mini_batches(X_train, Y_train, minibatch_size)
             for minibatch in minibatches: 
-                (minibatch_X, minibatch_Y) = minibatch                
+                (minibatch_X, minibatch_Y) = minibatch  
                 _ , minibatch_cost = sess.run([optimizer, cost_func], feed_dict = { X_place: minibatch_X, Y_place: minibatch_Y, keep_prob_tf: keep_prob})        
                 epoch_cost += minibatch_cost / num_minibatches
             if print_summary == True and epoch % 500 == 0:
@@ -414,7 +414,9 @@ def kfold(df, label_column_name, bundle, k = 10.0, print_summary = False):
     best_model = {}
     result = {}
 
-    for fold in folds:                
+    i = 1
+    for fold in folds: 
+        print "Training fold " + i + " / " + len(folds)
         test = fold 
         train = df.merge(fold, indicator=True, how='left')    
         train = train[train['_merge'] == 'left_only']
@@ -432,9 +434,10 @@ def kfold(df, label_column_name, bundle, k = 10.0, print_summary = False):
         accuracy_test_sum += model[KEY_ACCURACY_TEST]
 
     avg_accuracy = accuracy_test_sum/(1.0*len(folds))
+
     result = {
         KEY_AVERAGE_ACCURACY : avg_accuracy,
-        KEY_BEST_MODEL : KEY_BEST_MODEL
+        KEY_BEST_MODEL : best_model
     }
 
     return result
