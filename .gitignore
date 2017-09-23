@@ -1,1 +1,2 @@
-.ipynb_checkpoints/example-checkpoint.ipynb
+*.pyc
+.ipynb_checkpoints/.*

@@ -271,14 +271,13 @@ def train_model(X_train, Y_train, X_test, Y_test, layer_dims, learning_rate = 0.
         return None
 
     is_binary_class = layer_dims[-1] <= 2    
-    if print_summary:
-        classification = "Binary" if layer_dims[-1] <= 2 else str(layer_dims[-1]) + "-class"
-        classification += " classification"
-        print ''
-        print "----------------------"        
-        print ''
-        print  classification + " neural network with hyperparameters:"
-        print 'layer_dims: {0} keep_prob: {1} learning_rate: {2} num_epochs: {3} minibatch_size: {4}'.format(str(layer_dims), keep_prob, learning_rate, num_epochs, minibatch_size)
+    
+    classification = "Binary" if layer_dims[-1] <= 2 else str(layer_dims[-1]) + "-class"
+    classification += " classification"
+    print ''       
+    print ''
+    print  classification + " neural network with hyperparameters:"
+    print 'layer_dims: {0} keep_prob: {1} learning_rate: {2} num_epochs: {3} minibatch_size: {4}'.format(str(layer_dims), keep_prob, learning_rate, num_epochs, minibatch_size)
     
     tf_ops.reset_default_graph()
     keep_prob_tf = tf.placeholder(tf.float32)
@@ -347,8 +346,6 @@ def train_model(X_train, Y_train, X_test, Y_test, layer_dims, learning_rate = 0.
             f1score = sklearn.f1_score(Y_test[0], prediction_values_test, average='micro')
 
         if print_summary:
-            print ("Done training!") 
-
             plt.plot(np.squeeze(costs))
             plt.ylabel('cost')
             plt.xlabel('iterations (per tens)')
@@ -369,6 +366,10 @@ def train_model(X_train, Y_train, X_test, Y_test, layer_dims, learning_rate = 0.
             KEY_RECALL : recall,
             KEY_F1: f1score
         }
+        
+        print ("Done training!")         
+        print ''       
+        print ''
 
     return result
 
