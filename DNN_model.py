@@ -414,6 +414,8 @@ def kfold(df, label_column_name, bundle, k = 10.0, print_summary = False):
     best_model = {}
     result = {}
 
+    print "Starting K FOLD "
+
     i = 1
     for fold in folds: 
         print "Training fold " + str(i) + " / " + str(len(folds))
@@ -440,5 +442,8 @@ def kfold(df, label_column_name, bundle, k = 10.0, print_summary = False):
         KEY_AVERAGE_ACCURACY : avg_accuracy,
         KEY_BEST_MODEL : best_model
     }
+
+    print "Best average accuracy: " + avg_accuracy
+    print "Done K FOLD"
 
     return result
