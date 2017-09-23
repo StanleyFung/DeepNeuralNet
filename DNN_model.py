@@ -443,7 +443,9 @@ def kfold(df, label_column_name, bundle, k = 10.0, print_summary = False):
         KEY_BEST_MODEL : best_model
     }
 
-    print "Best average accuracy: " + avg_accuracy
+    print "Best average accuracy: " + str(avg_accuracy)
     print "Done K FOLD"
+    print ""
+    print ""
 
     return result
