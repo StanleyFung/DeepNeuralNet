@@ -220,10 +220,15 @@ KEY_PRECISION = "precision"
 KEY_RECALL = "recall"
 KEY_F1 = "f1"
 
-def train_with_hyperparameter_bundle(x_train, y_train, x_test, y_test, bundle, print_summary = False):
+def train_with_hyperparameter_bundle(df, label, bundle, print_summary = True):
+    classification = bundle[KEY_LAYER_DIMS][-1]
+    train = df.sample(frac=0.70)
+    test = df.drop(train.index)
+    (x_train, y_train) = format_dataframe_for_training(train, label, classification)
+    (x_test, y_test) = format_dataframe_for_training(test, label, classification)
     return train_model(x_train, y_train, x_test, y_test, bundle[KEY_LAYER_DIMS], bundle[KEY_LEARNING_RATE], bundle[KEY_NUM_EPOCHS], bundle[KEY_KEEP_PROB], bundle[KEY_MINI_BATCH_SIZE], print_summary)        
 
-def train_model(X_train, Y_train, X_test, Y_test, layer_dims, learning_rate = 0.0001, num_epochs = 5000, keep_prob = 1.0, minibatch_size = 64, print_summary = False):
+def train_model(X_train, Y_train, X_test, Y_test, layer_dims, learning_rate = 0.0001, num_epochs = 5000, keep_prob = 1.0, minibatch_size = 64, print_summary = True):
     """
     Implements a L tensorflow neural network: LINEAR->RELU->LINEAR->RELU->...LINEAR->(SOFTMAX OR SIGMOID).
     Arguments:
