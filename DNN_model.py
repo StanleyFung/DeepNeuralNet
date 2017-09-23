@@ -306,7 +306,8 @@ def train_model(X_train, Y_train, X_test, Y_test, layer_dims, learning_rate = 0.
                 (minibatch_X, minibatch_Y) = minibatch                
                 _ , minibatch_cost = sess.run([optimizer, cost_func], feed_dict = { X_place: minibatch_X, Y_place: minibatch_Y, keep_prob_tf: keep_prob})        
                 epoch_cost += minibatch_cost / num_minibatches
-            
+            if print_summary == True and epoch % 500 == 0:
+                print ("Cost after epoch %i: %f" % (epoch, epoch_cost)) 
             if print_summary == True and epoch % 5 == 0: 
                 costs.append(epoch_cost)
 
