@@ -416,7 +416,7 @@ def kfold(df, label_column_name, bundle, k = 10.0, print_summary = False):
 
     i = 1
     for fold in folds: 
-        print "Training fold " + i + " / " + len(folds)
+        print "Training fold " + str(i) + " / " + str(len(folds))
         test = fold 
         train = df.merge(fold, indicator=True, how='left')    
         train = train[train['_merge'] == 'left_only']
