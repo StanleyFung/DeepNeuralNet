@@ -212,19 +212,13 @@ def predict(X, params_from_train, is_binary_class):
 
     return result
 
-# Keys for dictionary returned by dnn.train
+# Keys for dictionary returned by dnn.train_model
 KEY_PARAMETERS = "params"
 KEY_ACCURACY_TRAIN = "accuracy_train"
 KEY_ACCURACY_TEST = "accuracy_test"
 KEY_PRECISION = "precision"
 KEY_RECALL = "recall"
 KEY_F1 = "f1"
-
-KEY_LAYER_DIMS = "layer_dims"
-KEY_LEARNING_RATE = "learning_rate"
-KEY_NUM_EPOCHS = "num_epochs"
-KEY_KEEP_PROB = "keep_prob"
-KEY_MINI_BATCH_SIZE = "minibatch_size"
 
 def train_with_hyperparameter_bundle(x_train, y_train, x_test, y_test, bundle, print_summary = False):
     return train_model(x_train, y_train, x_test, y_test, bundle[KEY_LAYER_DIMS], bundle[KEY_LEARNING_RATE], bundle[KEY_NUM_EPOCHS], bundle[KEY_KEEP_PROB], bundle[KEY_MINI_BATCH_SIZE], print_summary)        
@@ -274,8 +268,6 @@ def train_model(X_train, Y_train, X_test, Y_test, layer_dims, learning_rate = 0.
     
     classification = "Binary" if layer_dims[-1] <= 2 else str(layer_dims[-1]) + "-class"
     classification += " classification"
-    print ''       
-    print ''
     print  classification + " neural network with hyperparameters:"
     print 'layer_dims: {0} keep_prob: {1} learning_rate: {2} num_epochs: {3} minibatch_size: {4}'.format(str(layer_dims), keep_prob, learning_rate, num_epochs, minibatch_size)
     
@@ -374,6 +366,12 @@ def train_model(X_train, Y_train, X_test, Y_test, layer_dims, learning_rate = 0.
 
     return result
 
+KEY_LAYER_DIMS = "layer_dims"
+KEY_LEARNING_RATE = "learning_rate"
+KEY_NUM_EPOCHS = "num_epochs"
+KEY_KEEP_PROB = "keep_prob"
+KEY_MINI_BATCH_SIZE = "minibatch_size"
+
 def create_hyperparameter_bundle(layer_dims, learning_rate = 0.0001, num_epochs = 5000, keep_prob = 1, minibatch_size = 64):
     bundle = {
         KEY_LAYER_DIMS: layer_dims,
@@ -389,6 +387,9 @@ def format_dataframe_for_training(df, label_column_name, classification):
     y = df[label_column_name].values
     y = one_hot_matrix(y, classification, axis = 0)
     return (x, y)
+
+KEY_BEST_MODEL = "best_model"
+KEY_AVERAGE_ACCURACY = "average_accuracy"
 
 def kfold(df, label_column_name, bundle, k = 10.0, print_summary = False):    
     layer_dims = bundle[KEY_LAYER_DIMS]
@@ -408,7 +409,10 @@ def kfold(df, label_column_name, bundle, k = 10.0, print_summary = False):
             fold = shuffled[i*fold_size : (i+1) * fold_size]        
         folds.append(fold)  
 
+    highest_test_accuracy = 0
     accuracy_test_sum = 0     
+    best_model = {}
+    result = {}
 
     for fold in folds:                
         test = fold 
@@ -420,6 +424,17 @@ def kfold(df, label_column_name, bundle, k = 10.0, print_summary = False):
         (x_test, y_test) = format_dataframe_for_training(test, label_column_name, classification)
 
         model = train_model(x_train, y_train, x_test, y_test, bundle[KEY_LAYER_DIMS], bundle[KEY_LEARNING_RATE], bundle[KEY_NUM_EPOCHS], bundle[KEY_KEEP_PROB], bundle[KEY_MINI_BATCH_SIZE], print_summary)        
+        
+        if model[KEY_ACCURACY_TEST] > highest_test_accuracy:
+            highest_test_accuracy = model[KEY_ACCURACY_TEST]
+            best_model = model
+        
         accuracy_test_sum += model[KEY_ACCURACY_TEST]
 
-    return accuracy_test_sum/(1.0*len(folds))
+    avg_accuracy = accuracy_test_sum/(1.0*len(folds))
+    result = {
+        KEY_AVERAGE_ACCURACY : avg_accuracy,
+        KEY_BEST_MODEL : KEY_BEST_MODEL
+    }
+
+    return result
