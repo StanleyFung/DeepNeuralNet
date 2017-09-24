@@ -220,7 +220,7 @@ KEY_PRECISION = "precision"
 KEY_RECALL = "recall"
 KEY_F1 = "f1"
 
-def train_with_hyperparameter_bundle(df, label, bundle, print_summary = True):
+def train_with_hyperparameter_bundle(df, label, bundle, print_summary = True, split_percent = 0.7):
     classification = bundle[KEY_LAYER_DIMS][-1]
     train = df.sample(frac=0.70)
     test = df.drop(train.index)
