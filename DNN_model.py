@@ -313,7 +313,7 @@ def train_model(X_train, Y_train, X_test, Y_test, layer_dims, learning_rate = 0.
                 _ , batch_cost = sess.run([optimizer, cost_func], feed_dict = { X_place: X_train, Y_place: Y_train, keep_prob_tf: keep_prob})        
                 epoch_cost += batch_cost
 
-            if print_summary == True and epoch % 500 == 0:
+            if print_summary == True and epoch % 100 == 0:
                 print ("Cost after epoch %i: %f" % (epoch, epoch_cost)) 
             if print_summary == True and epoch % 5 == 0: 
                 costs.append(epoch_cost)
