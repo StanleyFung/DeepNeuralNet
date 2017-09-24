@@ -394,9 +394,15 @@ def create_hyperparameter_bundle(layer_dims, learning_rate = 0.0001, num_epochs 
     return bundle
 
 def format_dataframe_for_training(df, label_column_name, classification):
-    x = df.drop(label_column_name, axis = 1).T.values        
-    y = df[label_column_name].values
-    y = one_hot_matrix(y, classification, axis = 0)
+    x = None
+    y = None
+    if label_column_name and len(label_column_name) > 0:
+        x = df.drop(label_column_name, axis = 1).T.values        
+        y = df[label_column_name].values
+        y = one_hot_matrix(y, classification, axis = 0)
+    else:
+        x = x.T.values
+
     return (x, y)
 
 KEY_BEST_MODEL = "best_model"
