@@ -222,7 +222,7 @@ KEY_F1 = "f1"
 
 def train_with_hyperparameter_bundle(df, label, bundle, print_summary = True, split_percent = 0.7):
     classification = bundle[KEY_LAYER_DIMS][-1]
-    train = df.sample(frac=0.70)
+    train = df.sample(frac=split_percent)
     test = df.drop(train.index)
     (x_train, y_train) = format_dataframe_for_training(train, label, classification)
     (x_test, y_test) = format_dataframe_for_training(test, label, classification)
