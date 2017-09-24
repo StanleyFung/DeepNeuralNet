@@ -401,7 +401,7 @@ def format_dataframe_for_training(df, label_column_name, classification):
         y = df[label_column_name].values
         y = one_hot_matrix(y, classification, axis = 0)
     else:
-        x = x.T.values
+        x = df.T.values
 
     return (x, y)
 
