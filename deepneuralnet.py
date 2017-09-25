@@ -227,7 +227,9 @@ class DNN():
         parameters = self.__initialize_parameters(n_x)
         forward_prop_place = self.__forward_propagation_with_dropout(X_place, parameters, keep_prob_tf)
         cost_func = self.__compute_cost(forward_prop_place, Y_place)
-        optimizer = tf.train.AdamOptimizer(learning_rate = self.__learningRate).minimize(cost_func)
+        global_step = tf.Variable(0, trainable=False)        
+        learning_rate = tf.train.exponential_decay(self.__learningRate, global_step, 100000, 0.96, staircase=True)
+        optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(cost_func)
         result = {}
 
         init = tf.global_variables_initializer()
