@@ -53,28 +53,24 @@ class DNN():
         return bundle
 
     @staticmethod
-    def format_dataframe_for_training(df, label_column_name, classification):
+    def format_dataframe_for_training(df, label_column_name):
         x = None
         y = None
-
-        if classification == 2:
-            classification = 1
 
         if label_column_name and len(label_column_name) > 0:
             x = df.drop(label_column_name, axis = 1).values        
             y = df[label_column_name].values
-            y = DNN.one_hot_matrix(y, classification)
         else:
             x = df.values
 
         return (x, y)
 
     @staticmethod
-    def split_data(df, label, classification, split_percent = 0.7):                
+    def split_data(df, label, split_percent = 0.7):                
         train = df.sample(frac=split_percent)
         dev = df.drop(train.index)
-        (train_x, train_y) = DNN.format_dataframe_for_training(train, label, classification)
-        (dev_x, dev_y) = DNN.format_dataframe_for_training(dev, label, classification)
+        (train_x, train_y) = DNN.format_dataframe_for_training(train, label)
+        (dev_x, dev_y) = DNN.format_dataframe_for_training(dev, label)
         print("train_x.shape: " + str(train_x.shape))
         print("train_y.shape: " + str(train_y.shape))
         print("dev_x.shape: " + str(dev_x.shape))
@@ -129,7 +125,7 @@ class DNN():
             split_percent -- amount to split for train and dev set
             print_summary -- True for printing progress while training 
         """
-        (train_x, train_y, dev_x, dev_y) = DNN.split_data(df, label, self.__classification, split_percent)
+        (train_x, train_y, dev_x, dev_y) = DNN.split_data(df, label, split_percent)
         print("Done splitting data")
         return self.train(train_x, train_y, dev_x, dev_y, print_summary)        
 
@@ -169,19 +165,22 @@ class DNN():
                       recall, precision, f1
         """
         
-        classification = "Binary" if self.__classification <= 2 else str(self.__classification) + "-class"
-        classification += " classification"
-        print(classification + " neural network with hyperparameters:")
+        title = "Binary" if self.__classification <= 2 else str(self.__classification) + "-class"
+        title += " classification"
+        print(title + " neural network with hyperparameters:")
         print('layer_dims: {0} dropoutKeepProb: {1} learning_rate: {2} num_epochs: {3} minibatch_size: {4}'.format(str(self.__layerDims), 
             self.__dropoutKeepProb, 
             self.__learningRate,
             self.__numEpochs, 
             self.__minibatchSize))
         
+        Y_train_one_hot = DNN.one_hot_matrix(Y_train, self.__classification)
+        Y_test_one_hot = DNN.one_hot_matrix(Y_test, self.__classification)
+
         tf_ops.reset_default_graph()
-        keep_prob_tf = tf.placeholder(tf.float32)
+        keep_prob_tf = tf.placeholder(tf.float32)        
         (m_train, n_x) = X_train.shape
-        (_, n_y) = Y_train.shape
+        (_, n_y) = Y_test_one_hot.shape
         costs = []
         X_place = tf.placeholder(dtype=tf.float32, shape = (None, n_x)) 
         Y_place = tf.placeholder(dtype=tf.float32, shape = (None, n_y)) 
@@ -203,13 +202,13 @@ class DNN():
 
                 if self.__minibatchSize < m_train:
                     num_minibatches = int(math.floor(m_train / self.__minibatchSize)) 
-                    minibatches = self.__random_mini_batches(X_train, Y_train, self.__minibatchSize)
+                    minibatches = self.__random_mini_batches(X_train, Y_train_one_hot, self.__minibatchSize)
                     for minibatch in minibatches: 
                         (minibatch_X, minibatch_Y) = minibatch  
                         _ , minibatch_cost = sess.run([optimizer, cost_func], feed_dict = { X_place: minibatch_X, Y_place: minibatch_Y, keep_prob_tf: self.__dropoutKeepProb})        
                         epoch_cost += minibatch_cost / num_minibatches
                 else:
-                    _ , batch_cost = sess.run([optimizer, cost_func], feed_dict = { X_place: X_train, Y_place: Y_train, keep_prob_tf: self.__dropoutKeepProb})        
+                    _ , batch_cost = sess.run([optimizer, cost_func], feed_dict = { X_place: X_train, Y_place: Y_train_one_hot, keep_prob_tf: self.__dropoutKeepProb})        
                     epoch_cost += batch_cost
 
                 if print_summary == True and epoch % 20 == 0:
@@ -220,8 +219,8 @@ class DNN():
             self.parametersAfterTraining = sess.run(self.parameters)
                     
             # Multi classification
-            self.__prediction = tf.argmax(forward_prop_test)
-            predictions_correct = tf.equal(self.__prediction, tf.argmax(Y_place))
+            self.__prediction = tf.argmax(forward_prop_test, axis = 1)
+            predictions_correct = tf.equal(self.__prediction, tf.argmax(Y_place, axis = 1))
             accuracy = tf.reduce_mean(tf.cast(predictions_correct, "float"))
             
             # Binary classification, Y_train = [[0 1 0 1 ...] contains labels of value 0 or 1 scalar
@@ -231,8 +230,8 @@ class DNN():
                 accuracy = tf.reduce_mean(tf.cast(predictions_correct, 'float') )        
       
             # Calculate accuracy 
-            train_accuracy = accuracy.eval({X_place: X_train, Y_place: Y_train, keep_prob_tf: 1.0})        
-            test_accuracy = accuracy.eval({X_place: X_test, Y_place: Y_test, keep_prob_tf: 1.0})      
+            train_accuracy = accuracy.eval({X_place: X_train, Y_place: Y_train_one_hot, keep_prob_tf: 1.0})        
+            test_accuracy = accuracy.eval({X_place: X_test, Y_place: Y_test_one_hot, keep_prob_tf: 1.0})      
 
             # Calculate precision, recall, and f1
             prediction_values_test = sess.run(self.__prediction, feed_dict = { X_place: X_test, keep_prob_tf: 1.0})     
@@ -240,8 +239,6 @@ class DNN():
             precision = None
             recall = None
             f1score = None
-            prediction_values_test = prediction_values_test.T[0]
-            Y_test = Y_test.T[0]
 
             # http://scikit-learn.org/stable/modules/model_evaluation.html#precision-recall-f-measure-metrics
             if self.__isBinary:
@@ -408,8 +405,8 @@ class DNN():
             Y -- true "label" vector (1 for blue dot / 0 for red dot), of shape (number of examples, C)            
         Returns:
             mini_batches -- list of synchronous (mini_batch_X, mini_batch_Y)
-        """
-        m = X.shape[0]
+        """        
+        m = X.shape[0]        
         c = Y.shape[1]
         mini_batches = []
 
