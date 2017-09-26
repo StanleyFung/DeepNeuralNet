@@ -317,9 +317,6 @@ class DNN():
         return parameters
 
     def __batch_norm_wrapper(self, z_BN, is_training, decay = 0.999):
-        """
-
-        """
         scale = tf.Variable(tf.ones([z_BN.shape[-1]]))
         beta = tf.Variable(tf.zeros([z_BN.shape[-1]]))
         pop_mean = tf.Variable(tf.zeros([z_BN.shape[-1]]), trainable=False)
