@@ -23,57 +23,6 @@ class DNN():
     KEY_MINI_BATCH_SIZE = "minibatch_size"
 
     # Utility methods for formating panda dataframes 
-    def predict(X, params):
-        """
-        Outputs prediction for given test set and parameters from training 
-        Arguments:
-            X -- test data
-            params -- parameters output from training 
-        Returns:
-            Predictions 
-        """
-
-        result = None        
-        Z = None
-        A = None
-
-        numLayers = int(len(params)/2)
-        classification = None
-        for i in range(0, numLayers):
-            wKey = 'W' + str(i+1)
-            bKey = 'b' + str(i+1)
-            W = params[wKey]
-            b = params[bKey]
-            W_tf = tf.convert_to_tensor(W)
-            b_tf = tf.convert_to_tensor(b)
-
-            if i == numLayers - 1:
-                classification = len(b)
-
-            if i == 0:
-                Z = tf.add(tf.matmul(W_tf,X), b_tf)
-                A = tf.nn.relu(Z)
-            else:
-                Z = tf.add(tf.matmul(W,A), b_tf) 
-                A = tf.nn.relu(Z)        
-
-        x_tf = tf.placeholder(dtype=tf.float32, shape = (X.shape[0], None))             
-        isBinary = classification <= 2
-        with tf.Session() as sess:
-            prediction = tf.argmax(Z)
-
-            if isBinary:            
-                prediction = tf.greater(tf.sigmoid(Z), 0.5)                    
-                        
-            result = sess.run(tf.cast(prediction, 'float'), feed_dict = {x_tf: X})
-
-        # binary class returns array of shape (1, num_examples)
-        # argmax in multi class reduces to 1D array for you
-        if isBinary:
-            result = result[0]
-
-        return result
-
     def one_hot_matrix(labels, C): 
         """
         Creates a matrix where the i-th row corresponds to the ith class number and the jth column
@@ -86,7 +35,7 @@ class DNN():
             one_hot -- one hot matrix
         """
         C = tf.constant(value = C, name = "C")    
-        one_hot_matrix = tf.one_hot(labels, C, axis = 0)
+        one_hot_matrix = tf.one_hot(labels, C, axis = -1)
 
         with tf.Session() as sess:
             one_hot = sess.run(one_hot_matrix)
@@ -112,11 +61,11 @@ class DNN():
             classification = 1
 
         if label_column_name and len(label_column_name) > 0:
-            x = df.drop(label_column_name, axis = 1).T.values        
+            x = df.drop(label_column_name, axis = 1).values        
             y = df[label_column_name].values
             y = DNN.one_hot_matrix(y, classification)
         else:
-            x = df.T.values
+            x = df.values
 
         return (x, y)
 
@@ -165,7 +114,10 @@ class DNN():
         self.__learningRate = hyperparameters[DNN.KEY_LEARNING_RATE]
         self.__numEpochs = hyperparameters[DNN.KEY_NUM_EPOCHS]
         self.__dropoutKeepProb = hyperparameters[DNN.KEY_KEEP_PROB]
-        self.__minibatchSize = hyperparameters[DNN.KEY_MINI_BATCH_SIZE]           
+        self.__minibatchSize = hyperparameters[DNN.KEY_MINI_BATCH_SIZE]   
+        self.__prediction = None
+        self.parameters = {}
+        self.parametersAfterTraining = {}
     
     def split_data_and_train(self, df, label, split_percent = 0.7, print_summary = True):        
         """
@@ -178,29 +130,38 @@ class DNN():
             print_summary -- True for printing progress while training 
         """
         (train_x, train_y, dev_x, dev_y) = DNN.split_data(df, label, self.__classification, split_percent)
+        print("Done splitting data")
         return self.train(train_x, train_y, dev_x, dev_y, print_summary)        
+
+    def predict(self, X):
+        prediction = None
+        
+        with tf.Session() as sess:
+            prediction = sess.run(self.__prediction, feed_dict = { X_place: X, keep_prob_tf: 1.0})
+
+        return prediction
 
     def train(self, X_train, Y_train, X_test, Y_test, print_summary = True):
         """
         Implements a L tensorflow neural network: LINEAR->RELU->LINEAR->RELU->...LINEAR->(SOFTMAX OR SIGMOID).
         Arguments:
-            X_train -- training set, of shape (input size = n_x, number of training examples = m_train)
-            Y_train -- test set, of shape (output size = n_y or numOfClasses, number of training examples = m_train)
+            X_train -- training set, of shape (number of training examples = m_train, input size = n_x)
+            Y_train -- test set, of shape (number of training examples = m_train, output size = n_y or numOfClasses)
 
                     # Binary classification, Y_train = [[0 1 0 1 ...] contains labels of value 0 or 1 scalar
 
                     # For Multi Classification, one hot encoding
-                    # labels = np.array([1,2,3,0,2,1])
+                    # labels = np.array([1,2,3,0])
                     # one_hot = one_hot_matrix(labels, C = 4)
                     # Y_train = 
-                    #[[0. 0. 0. 1. 0. 0.] 
-                    # [1. 0. 0. 0. 0. 1.]
-                    # [0. 1. 0. 0. 1. 0.]
-                    # [0. 0. 1. 0. 0. 0.]]
-                    # Here 0 1 0 0, the first COLUMN represents 1
+                    #[[0. 1. 0. 0.] 
+                    # [0. 0. 1. 0.]
+                    # [0. 0. 0. 1.]
+                    # [0. 0. 0. 0.]]
+                    # Here 0 1 0 0, the first ROW represents 1
 
-            X_test -- training set, of shape (input size = n_x, number of test examples = m_test)
-            Y_test -- test set, of shape (output size = 6, number of test examples = m_test)           
+            X_test -- training set, of shape (number of test examples = m_test, input size = n_x)
+            Y_test -- test set, of shape (number of test examples = m_test, outputsize = 6)           
             print_summary -- True to print info and progress during and after training
         Returns:
             result -- parameters learnt by the model. They can then be used to predict.
@@ -219,14 +180,15 @@ class DNN():
         
         tf_ops.reset_default_graph()
         keep_prob_tf = tf.placeholder(tf.float32)
-        (n_x, m_train) = X_train.shape
-        n_y = Y_train.shape[0]
+        (m_train, n_x) = X_train.shape
+        (_, n_y) = Y_train.shape
         costs = []
-        X_place = tf.placeholder(dtype=tf.float32, shape = (n_x, None)) 
-        Y_place = tf.placeholder(dtype=tf.float32, shape = (n_y, None)) 
-        parameters = self.__initialize_parameters(n_x)
-        forward_prop_place = self.__forward_propagation(X_place, parameters, keep_prob_tf)
-        cost_func = self.__compute_cost(forward_prop_place, Y_place)            
+        X_place = tf.placeholder(dtype=tf.float32, shape = (None, n_x)) 
+        Y_place = tf.placeholder(dtype=tf.float32, shape = (None, n_y)) 
+        self.parameters = self.__initialize_parameters(n_x)
+        forward_prop_train = self.__forward_propagation(X_place, self.parameters, keep_prob_tf, isTraining = True)
+        forward_prop_test = self.__forward_propagation(X_place, self.parameters, keep_prob_tf, isTraining = False)
+        cost_func = self.__compute_cost(forward_prop_train, Y_place)            
         optimizer = tf.train.AdamOptimizer(learning_rate = self.__learningRate).minimize(cost_func)
         result = {}
 
@@ -255,17 +217,17 @@ class DNN():
                 if print_summary == True and epoch % 5 == 0: 
                     costs.append(epoch_cost)
 
-            parameters = sess.run(parameters)
+            self.parametersAfterTraining = sess.run(self.parameters)
                     
             # Multi classification
-            prediction = tf.argmax(forward_prop_place)
-            predictions_correct = tf.equal(prediction, tf.argmax(Y_place))
+            self.__prediction = tf.argmax(forward_prop_test)
+            predictions_correct = tf.equal(self.__prediction, tf.argmax(Y_place))
             accuracy = tf.reduce_mean(tf.cast(predictions_correct, "float"))
             
             # Binary classification, Y_train = [[0 1 0 1 ...] contains labels of value 0 or 1 scalar
             if self.__isBinary:
-                prediction = tf.greater(tf.sigmoid(forward_prop_place),0.5)
-                predictions_correct = tf.equal(prediction, tf.equal(Y_place,1.0))
+                self.__prediction = tf.greater(tf.sigmoid(forward_prop_test),0.5)
+                predictions_correct = tf.equal(self.__prediction, tf.equal(Y_place,1.0))
                 accuracy = tf.reduce_mean(tf.cast(predictions_correct, 'float') )        
       
             # Calculate accuracy 
@@ -273,22 +235,24 @@ class DNN():
             test_accuracy = accuracy.eval({X_place: X_test, Y_place: Y_test, keep_prob_tf: 1.0})      
 
             # Calculate precision, recall, and f1
-            prediction_values_test = DNN.predict(X_test, parameters)        
+            prediction_values_test = sess.run(self.__prediction, feed_dict = { X_place: X_test, keep_prob_tf: 1.0})     
 
             precision = None
             recall = None
             f1score = None
+            prediction_values_test = prediction_values_test.T[0]
+            Y_test = Y_test.T[0]
 
             # http://scikit-learn.org/stable/modules/model_evaluation.html#precision-recall-f-measure-metrics
             if self.__isBinary:
                 # make sure true labels are given as first parameter
-                precision = sklearn.precision_score(Y_test[0], prediction_values_test)
-                recall = sklearn.recall_score(Y_test[0], prediction_values_test)
-                f1score = sklearn.f1_score(Y_test[0], prediction_values_test)
+                precision = sklearn.precision_score(Y_test, prediction_values_test)
+                recall = sklearn.recall_score(Y_test, prediction_values_test)
+                f1score = sklearn.f1_score(Y_test, prediction_values_test)
             else:
-                precision = sklearn.precision_score(Y_test[0], prediction_values_test, average='micro')
-                recall = sklearn.recall_score(Y_test[0], prediction_values_test, average='micro')
-                f1score = sklearn.f1_score(Y_test[0], prediction_values_test, average='micro')
+                precision = sklearn.precision_score(Y_test, prediction_values_test, average='micro')
+                recall = sklearn.recall_score(Y_test, prediction_values_test, average='micro')
+                f1score = sklearn.f1_score(Y_test, prediction_values_test, average='micro')
 
             if print_summary:
                 plt.plot(np.squeeze(costs))
@@ -304,7 +268,7 @@ class DNN():
                 print("f1score" + " : " + str(f1score))        
 
             result = {
-                DNN.KEY_PARAMETERS: parameters,
+                DNN.KEY_PARAMETERS: self.parametersAfterTraining,
                 DNN.KEY_ACCURACY_TRAIN: train_accuracy,
                 DNN.KEY_ACCURACY_TEST : test_accuracy,
                 DNN.KEY_PRECISION : precision,
@@ -324,46 +288,69 @@ class DNN():
         Input:
             n_x: number of inputs in first layer 
         Returns:
-            W1 : [__layerDims[0], n_x]
-            b1 : [__layerDims[0], 1]
-            W2 : [__layerDims[1], self.__layerDims[0]]
-            b2 : [__layerDims[1], 1]
+            W1 : [n_x, __layerDims[0]]
+            b1 : [1, __layerDims[0]]
+            W2 : [self.__layerDims[0], __layerDims[1]]
+            b2 : [1, __layerDims[1]]
             .
             .
             .
-            Wi : [__layerDims[i-1], self.__layerDims[0]]
-            bi : [__layerDims[i-1], 1]
+            Wi : [self.__layerDims[0], __layerDims[i-1]]
+            bi : [1, __layerDims[i-1]]
         parameters -- a dictionary of tensors containing W1, b1, W2, b2, W3, b3... Wi, bi
         """
+        print("Init Params")
         parameters = {}
         for indx,item in enumerate(self.__layerDims):
             wKey = "W" + str(indx+1)
             bKey = "b" + str(indx+1)
             W = None
             b = None
+            prevLayerDim = self.__layerDims[indx - 1]
             if indx == 0:            
-                W = tf.get_variable(wKey, [item,n_x], initializer = tf.contrib.layers.xavier_initializer())
-                b = tf.get_variable(bKey, [item,1], initializer = tf.zeros_initializer())            
+                W = tf.get_variable(wKey, [n_x, item], initializer = tf.contrib.layers.xavier_initializer())
+                b = tf.get_variable(bKey, [1, item], initializer = tf.zeros_initializer())            
             else:
-                W = tf.get_variable(wKey, [item,self.__layerDims[indx - 1]], initializer = tf.contrib.layers.xavier_initializer())
-                b = tf.get_variable(bKey, [item,1], initializer = tf.zeros_initializer())            
+                W = tf.get_variable(wKey, [prevLayerDim, item], initializer = tf.contrib.layers.xavier_initializer())
+                b = tf.get_variable(bKey, [1, item], initializer = tf.zeros_initializer())            
             
             parameters[wKey] = W
             parameters[bKey] = b
-                    
+
         return parameters
-        
-    def __forward_propagation(self, X, parameters, keep_prob_tf): 
+
+    def __batch_norm_wrapper(self, z_BN, is_training, decay = 0.999):
+        """
+
+        """
+        scale = tf.Variable(tf.ones([z_BN.shape[-1]]))
+        beta = tf.Variable(tf.zeros([z_BN.shape[-1]]))
+        pop_mean = tf.Variable(tf.zeros([z_BN.shape[-1]]), trainable=False)
+        pop_var = tf.Variable(tf.ones([z_BN.shape[-1]]), trainable=False)
+        epsilon = 1e-3
+
+        if is_training:
+            batch_mean, batch_var = tf.nn.moments(z_BN,[0])
+            train_mean = tf.assign(pop_mean, pop_mean * decay + batch_mean * (1 - decay))
+            train_var = tf.assign(pop_var, pop_var * decay + batch_var * (1 - decay))
+            with tf.control_dependencies([train_mean, train_var]):
+                return tf.nn.batch_normalization(z_BN, batch_mean, batch_var, beta, scale, epsilon)
+        else:
+            return tf.nn.batch_normalization(z_BN, pop_mean, pop_var, beta, scale, epsilon)
+
+    def __forward_propagation(self, X, parameters, keep_prob_tf, isTraining): 
         """
         Implements the forward propagation for the model: LINEAR -> RELU -> LINEAR -> RELU -> ... -> LINEAR -> SOFTMAX
         The following optimizations are included:
             Dropout 
             Batch Normalization 
         Arguments:
-            X -- input dataset placeholder, of shape (input size, number of examples)
+            X -- input dataset placeholder, of shape (number of examples, input size)
             parameters -- python dictionary containing your parameters "W1", "b1", "W2", "b2", "W3", "b3"..."Wi", "bi"
                           the shapes are given in initialize_parameters
             keep_prob_tf - tensor for dropout probability place holder
+            isTraining - If true, we are training and should compute batch norm
+                If false, 
         Returns:
             Zi -- the output of the last LINEAR unit
         """
@@ -374,22 +361,19 @@ class DNN():
         for i in range(0, int(len(parameters)/2)):
             wKey = 'W' + str(i+1)
             bKey = 'b' + str(i+1)
-            W = parameters[wKey]
+            W = parameters[wKey]            
             b = parameters[bKey]
             m1 = None
             m2 = None
             if i == 0:
-                m1 = W
-                m2 = X            
-            else:       
-                m1 = W
-                m2 = A                         
+                m1 = X 
+                m2 = W                        
+            else:     
+                m1 = A    
+                m2 = W                                
                 
-            z_BN = tf.matmul(m1,m2)
-            batch_mean, batch_var = tf.nn.moments(z_BN,[0])            
-            scale = tf.Variable(tf.ones(b.shape))
-            beta = tf.Variable(tf.zeros(b.shape))
-            Z = tf.nn.batch_normalization(z_BN,batch_mean,batch_var,beta,scale, epsilon)
+            z_BN = tf.matmul(m1, m2)
+            Z = self.__batch_norm_wrapper(z_BN, isTraining)
             A = tf.nn.dropout(tf.nn.relu(Z), keep_prob_tf) 
      
         return Z
@@ -398,27 +382,21 @@ class DNN():
         """
         Computes the cost
         Arguments:
-            Z_final -- output of forward propagation (output of the last LINEAR unit), of shape (n_y, number of examples)
+            Z_final -- output of forward propagation (output of the last LINEAR unit), 
+            of shape (num_examples, n_y)
             Y -- "true" labels vector placeholder, same shape as Z_final
         Returns:
             cost - Tensor of the cost function
         """
         
-        # to fit the tensorflow requirement for tf.nn.softmax_cross_entropy_with_logits()
-        # logits and labels must have the same shape
-        # e.g. [batch_size, num_classes] and the same dtype (either float16, float32, or float32).
-        # Z_final and Y is of shape (num_classes, batch_size)
-        logits = tf.transpose(Z_final)
-        labels = tf.transpose(Y)    
-
         cost = None
         
         if self.__isBinary: 
             # Use this for binary classification where Y is just an array of labels Eg. [0,1,0,1]
-            cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits = logits, labels = labels))
+            cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits = Z_final, labels = Y))
         else:
             # Use this for multi classification where Y consists of ONE HOT encodings
-            cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits = logits, labels = labels))
+            cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits = Z_final, labels = Y))
 
         return cost
     
@@ -426,33 +404,33 @@ class DNN():
         """
         Creates a list of random minibatches from (X, Y)
         Arguments:
-            X -- input data, of shape (input size, number of examples)
-            Y -- true "label" vector (1 for blue dot / 0 for red dot), of shape (1, number of examples)            
+            X -- input data, of shape (number of examples, input size)
+            Y -- true "label" vector (1 for blue dot / 0 for red dot), of shape (number of examples, C)            
         Returns:
             mini_batches -- list of synchronous (mini_batch_X, mini_batch_Y)
         """
-        m = X.shape[1]
-        c = Y.shape[0]
+        m = X.shape[0]
+        c = Y.shape[1]
         mini_batches = []
 
         # Step 1: Shuffle (X, Y)
         # To make your "random" minibatches
         permutation = list(np.random.permutation(m))
-        shuffled_X = X[:, permutation]
-        shuffled_Y = Y[:, permutation].reshape((c,m))
+        shuffled_X = X[permutation]
+        shuffled_Y = Y[permutation]
 
         # Step 2: Partition (shuffled_X, shuffled_Y). Minus the end case.
         num_complete_minibatches = int(math.floor(m/minibatch_size)) # number of mini batches of size self.__miniBatchSize in your partitionning
         for k in range(0, num_complete_minibatches):
-            mini_batch_X = shuffled_X[:, k*minibatch_size : (k+1) * minibatch_size]
-            mini_batch_Y = shuffled_Y[:, k*minibatch_size : (k+1) * minibatch_size]
+            mini_batch_X = shuffled_X[k*minibatch_size : (k+1) * minibatch_size]
+            mini_batch_Y = shuffled_Y[k*minibatch_size : (k+1) * minibatch_size]
             mini_batch = (mini_batch_X, mini_batch_Y)
             mini_batches.append(mini_batch)
 
         # Handling the end case (last mini-batch < self.__miniBatchSize)
         if m % minibatch_size != 0:        
-            mini_batch_X = shuffled_X[:, num_complete_minibatches * minibatch_size: num_complete_minibatches * minibatch_size + m % minibatch_size]
-            mini_batch_Y = shuffled_Y[:, num_complete_minibatches * minibatch_size : num_complete_minibatches * minibatch_size + m % minibatch_size]
+            mini_batch_X = shuffled_X[num_complete_minibatches * minibatch_size: num_complete_minibatches * minibatch_size + m % minibatch_size]
+            mini_batch_Y = shuffled_Y[num_complete_minibatches * minibatch_size : num_complete_minibatches * minibatch_size + m % minibatch_size]
             mini_batch = (mini_batch_X, mini_batch_Y)
             mini_batches.append(mini_batch)
         
