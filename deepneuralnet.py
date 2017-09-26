@@ -225,11 +225,9 @@ class DNN():
         X_place = tf.placeholder(dtype=tf.float32, shape = (n_x, None)) 
         Y_place = tf.placeholder(dtype=tf.float32, shape = (n_y, None)) 
         parameters = self.__initialize_parameters(n_x)
-        forward_prop_place = self.__forward_propagation_with_dropout(X_place, parameters, keep_prob_tf)
-        cost_func = self.__compute_cost(forward_prop_place, Y_place)
-        global_step = tf.Variable(0, trainable=False)        
-        learning_rate = tf.train.exponential_decay(self.__learningRate, global_step, 100000, 0.96, staircase=True)
-        optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(cost_func)
+        forward_prop_place = self.__forward_propagation(X_place, parameters, keep_prob_tf)
+        cost_func = self.__compute_cost(forward_prop_place, Y_place)            
+        optimizer = tf.train.AdamOptimizer(learning_rate = self.__learningRate).minimize(cost_func)
         result = {}
 
         init = tf.global_variables_initializer()
@@ -355,9 +353,12 @@ class DNN():
                     
         return parameters
         
-    def __forward_propagation_with_dropout(self, X, parameters, keep_prob_tf): 
+    def __forward_propagation(self, X, parameters, keep_prob_tf): 
         """
         Implements the forward propagation for the model: LINEAR -> RELU -> LINEAR -> RELU -> ... -> LINEAR -> SOFTMAX
+        The following optimizations are included:
+            Dropout 
+            Batch Normalization 
         Arguments:
             X -- input dataset placeholder, of shape (input size, number of examples)
             parameters -- python dictionary containing your parameters "W1", "b1", "W2", "b2", "W3", "b3"..."Wi", "bi"
@@ -368,18 +369,28 @@ class DNN():
         """
         Z = None
         A = None
-        
+        epsilon = 1e-3        
+
         for i in range(0, int(len(parameters)/2)):
             wKey = 'W' + str(i+1)
             bKey = 'b' + str(i+1)
             W = parameters[wKey]
             b = parameters[bKey]
+            m1 = None
+            m2 = None
             if i == 0:
-                Z = tf.add(tf.matmul(W,X), b)
-                A = tf.nn.dropout(tf.nn.relu(Z), keep_prob_tf)            
-            else:
-                Z = tf.add(tf.matmul(W,A), b) 
-                A = tf.nn.dropout(tf.nn.relu(Z), keep_prob_tf) 
+                m1 = W
+                m2 = X            
+            else:       
+                m1 = W
+                m2 = A                         
+                
+            z_BN = tf.matmul(m1,m2)
+            batch_mean, batch_var = tf.nn.moments(z_BN,[0])            
+            scale = tf.Variable(tf.ones(b.shape))
+            beta = tf.Variable(tf.zeros(b.shape))
+            Z = tf.nn.batch_normalization(z_BN,batch_mean,batch_var,beta,scale, epsilon)
+            A = tf.nn.dropout(tf.nn.relu(Z), keep_prob_tf) 
      
         return Z
     
@@ -445,4 +456,4 @@ class DNN():
             mini_batch = (mini_batch_X, mini_batch_Y)
             mini_batches.append(mini_batch)
         
-        return mini_batches
+        return mini_batches        
