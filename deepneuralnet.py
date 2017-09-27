@@ -21,8 +21,8 @@ class DNN():
     KEY_NUM_EPOCHS = "num_epochs"
     KEY_KEEP_PROB = "keep_prob"
     KEY_MINI_BATCH_SIZE = "minibatch_size"
+    KEY_MOMENTUM = "momentum"
 
-    # Utility methods for formating panda dataframes 
     def predict(X, params):
         """
         Outputs prediction for given test set and parameters from training 
@@ -60,30 +60,12 @@ class DNN():
         x_tf = tf.placeholder(dtype=tf.float32, shape = X.shape)             
         isBinary = classification <= 2
         with tf.Session() as sess:
-            prediction = tf.argmax(Z)                                           
+            prediction = tf.argmax(Z, axis = 1)                                           
             result = sess.run(tf.cast(prediction, 'float'), feed_dict = {x_tf: X})
 
         return result
 
-    def one_hot_matrix(labels, C): 
-        C = tf.constant(value = C, name = "C")    
-        one_hot_matrix = tf.one_hot(labels, C, axis = -1)
-
-        with tf.Session() as sess:
-            one_hot = sess.run(one_hot_matrix)
-
-        return one_hot
-        
-    def create_hyperparameter_bundle(layer_dims, learning_rate = 0.0001, num_epochs = 5000, keep_prob = 1, minibatch_size = 64):
-        bundle = {
-            DNN.KEY_LAYER_DIMS: layer_dims,
-            DNN.KEY_KEEP_PROB: keep_prob,
-            DNN.KEY_LEARNING_RATE: learning_rate,
-            DNN.KEY_NUM_EPOCHS: num_epochs,
-            DNN.KEY_MINI_BATCH_SIZE: minibatch_size
-        }
-        return bundle
-
+    # Utility methods for formating panda dataframes       
     @staticmethod
     def format_dataframe_for_training(df, label_column_name):
         x = None
@@ -93,11 +75,22 @@ class DNN():
             x = df.drop(label_column_name, axis = 1).values        
             y = df[label_column_name].values
             classification = len(set(y))
-            y = DNN.one_hot_matrix(y, classification)
+            y = DNN.__one_hot_matrix(y, classification)
         else:
             x = df.values
 
         return (x, y)
+
+    def create_hyperparameter_bundle(layer_dims, learning_rate = 0.0001, num_epochs = 1000, keep_prob = 1, minibatch_size = 64, momentum = 0.95):
+        bundle = {
+            DNN.KEY_LAYER_DIMS: layer_dims,
+            DNN.KEY_KEEP_PROB: keep_prob,
+            DNN.KEY_LEARNING_RATE: learning_rate,
+            DNN.KEY_NUM_EPOCHS: num_epochs,
+            DNN.KEY_MINI_BATCH_SIZE: minibatch_size,            
+            DNN.KEY_MOMENTUM: momentum
+        }
+        return bundle
 
     @staticmethod
     def split_data(df, label, split_percent = 0.7):                
@@ -141,7 +134,8 @@ class DNN():
         self.__learningRate = hyperparameters[DNN.KEY_LEARNING_RATE]
         self.__numEpochs = hyperparameters[DNN.KEY_NUM_EPOCHS]
         self.__dropoutKeepProb = hyperparameters[DNN.KEY_KEEP_PROB]
-        self.__minibatchSize = hyperparameters[DNN.KEY_MINI_BATCH_SIZE]           
+        self.__minibatchSize = hyperparameters[DNN.KEY_MINI_BATCH_SIZE] 
+        self.__momentum = hyperparameters[DNN.KEY_MOMENTUM]             
     
     def split_data_and_train(self, df, label, split_percent = 0.7, print_summary = True):        
         """
@@ -188,13 +182,10 @@ class DNN():
         parameters = self.__initialize_parameters(n_x)
         forward_prop_place = self.__forward_propagation(X_place, parameters, keep_prob_tf)
         cost_func = self.__compute_cost(forward_prop_place, Y_place)            
-        optimizer = tf.train.AdamOptimizer(learning_rate = self.__learningRate).minimize(cost_func)
-        result = {}
+        optimizer = tf.train.AdamOptimizer(learning_rate = self.__learningRate, beta1= self.__momentum).minimize(cost_func)                
 
-        init = tf.global_variables_initializer()
-        
         with tf.Session() as sess:
-            sess.run(init)
+            sess.run(tf.global_variables_initializer())
             
             print("Training underway...")
             for epoch in range(self.__numEpochs):
@@ -220,7 +211,8 @@ class DNN():
                     
             # Multi classifcation
             prediction = tf.argmax(forward_prop_place, axis = 1)
-            predictions_correct = tf.equal(prediction, tf.argmax(Y_place, axis = 1))
+            true_values = tf.argmax(Y_place, axis = 1)
+            predictions_correct = tf.equal(prediction, true_values)
             accuracy = tf.reduce_mean(tf.cast(predictions_correct, "float"))    
 
             # Calculate accuracy     
@@ -228,11 +220,11 @@ class DNN():
             test_accuracy = 100 * accuracy.eval({X_place: X_test, Y_place: Y_test, keep_prob_tf: 1.0})      
            
             prediction_values_test = prediction.eval({X_place: X_test, keep_prob_tf: 1.0})                    
-            true_values_test = tf.argmax(Y_place, axis = 1).eval({Y_place: Y_test})
+            true_values_test = true_values.eval({Y_place: Y_test, keep_prob_tf: 1.0})
             
             precision = 100 * sklearn.precision_score(true_values_test, prediction_values_test, average='micro')
             recall = 100 * sklearn.recall_score(true_values_test, prediction_values_test, average='micro')
-            f1score = sklearn.f1_score(true_values_test, prediction_values_test, average='micro')
+            f1score = 100 * sklearn.f1_score(true_values_test, prediction_values_test, average='micro')
 
             if print_summary:
                 plt.plot(np.squeeze(costs))
@@ -304,26 +296,30 @@ class DNN():
         The following optimizations are included:
             Dropout 
             Batch Normalization 
+            See https://www.cs.toronto.edu/~hinton/absps/JMLRdropout.pdf
         Arguments:
             X -- input dataset placeholder, of shape (number of examples, input size)
             parameters -- python dictionary containing your parameters "W1", "b1", "W2", "b2", "W3", "b3"..."Wi", "bi"
                           the shapes are given in initialize_parameters
-            keep_prob_tf - tensor for dropout probability place holder
+            keep_prob_tf - tensor for dropout probability place holder - typical value ranges from 0.5 to 0.8
         Returns:
             Zi -- the output of the last LINEAR unit
         """
         Z = None
         A = None  
-
+        # Typical values of clip range from 3 to 4 
+        maxnorm_clip = 4
         for i in range(0, int(len(parameters)/2)):
             wKey = 'W' + str(i+1)
             bKey = 'b' + str(i+1)
             W = parameters[wKey]
             b = parameters[bKey]            
+            W = tf.clip_by_norm(W, maxnorm_clip)
+
             if i == 0:
                 Z = tf.add(tf.matmul(X, W), b)        
             else:     
-                Z = tf.add(tf.matmul(A, W), b)                                       
+                Z = tf.add(tf.matmul(A, W), b)                         
             
             A = tf.nn.dropout(tf.nn.relu(Z), keep_prob_tf) 
      
@@ -350,8 +346,7 @@ class DNN():
         Returns:
             mini_batches -- list of synchronous (mini_batch_X, mini_batch_Y)
         """
-        (m, _) = X.shape
-        (_, c) = Y.shape
+        (m, _) = X.shape        
         mini_batches = []
 
         # Step 1: Shuffle (X, Y)
@@ -370,9 +365,18 @@ class DNN():
 
         # Handling the end case (last mini-batch < self.__miniBatchSize)
         if m % minibatch_size != 0:        
-            mini_batch_X = shuffled_X[num_complete_minibatches * minibatch_size: num_complete_minibatches * minibatch_size + m % minibatch_size]
+            mini_batch_X = shuffled_X[num_complete_minibatches * minibatch_size : num_complete_minibatches * minibatch_size + m % minibatch_size]
             mini_batch_Y = shuffled_Y[num_complete_minibatches * minibatch_size : num_complete_minibatches * minibatch_size + m % minibatch_size]
             mini_batch = (mini_batch_X, mini_batch_Y)
             mini_batches.append(mini_batch)
         
-        return mini_batches        
+        return mini_batches  
+
+    def __one_hot_matrix(labels, C): 
+        C = tf.constant(value = C, name = "C")    
+        one_hot_matrix = tf.one_hot(labels, C, axis = -1)
+
+        with tf.Session() as sess:
+            one_hot = sess.run(one_hot_matrix)
+
+        return one_hot       
