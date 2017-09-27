@@ -385,11 +385,7 @@ class DNN():
                 m1 = W
                 m2 = A                         
                 
-            z_BN = tf.matmul(m1,m2)
-            batch_mean, batch_var = tf.nn.moments(z_BN,[0])            
-            scale = tf.Variable(tf.ones(b.shape))
-            beta = tf.Variable(tf.zeros(b.shape))
-            Z = tf.nn.batch_normalization(z_BN,batch_mean,batch_var,beta,scale, epsilon)
+            Z = tf.add(tf.matmul(m1,m2), b)
             A = tf.nn.dropout(tf.nn.relu(Z), keep_prob_tf) 
      
         return Z
