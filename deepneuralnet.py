@@ -22,48 +22,7 @@ class DNN():
     KEY_KEEP_PROB = "keep_prob"
     KEY_MINI_BATCH_SIZE = "minibatch_size"
     KEY_MOMENTUM = "momentum"
-
-    def predict(X, params):
-        """
-        Outputs prediction for given test set and parameters from training 
-        Arguments:
-            X -- test data
-            params -- parameters output from training 
-        Returns:
-            Predictions 
-        """
-
-        result = None        
-        Z = None
-        A = None
-
-        numLayers = int(len(params)/2)
-        classification = None
-        for i in range(0, numLayers):
-            wKey = 'W' + str(i+1)
-            bKey = 'b' + str(i+1)
-            W = params[wKey]
-            b = params[bKey]
-            W_tf = tf.convert_to_tensor(W)
-            b_tf = tf.convert_to_tensor(b)
-
-            if i == numLayers - 1:
-                classification = len(b)
-
-            if i == 0:
-                Z = tf.add(tf.matmul(X, W_tf), b_tf)
-                A = tf.nn.relu(Z)
-            else:
-                Z = tf.add(tf.matmul(A, W), b_tf) 
-                A = tf.nn.relu(Z)        
-
-        x_tf = tf.placeholder(dtype=tf.float32, shape = X.shape)             
-        isBinary = classification <= 2
-        with tf.Session() as sess:
-            prediction = tf.argmax(Z, axis = 1)                                           
-            result = sess.run(tf.cast(prediction, 'float'), feed_dict = {x_tf: X})
-
-        return result
+    KEY_MAX_NORM_CLIP = "maxnorm_clip"
 
     # Utility methods for formating panda dataframes       
     @staticmethod
@@ -81,14 +40,15 @@ class DNN():
 
         return (x, y)
 
-    def create_hyperparameter_bundle(layer_dims, learning_rate = 0.0001, num_epochs = 1000, keep_prob = 1, minibatch_size = 64, momentum = 0.95):
+    def create_hyperparameter_bundle(layer_dims, learning_rate = 0.0001, num_epochs = 1000, keep_prob = 1, minibatch_size = 64, momentum = 0.97, maxnorm_clip = 3):
         bundle = {
             DNN.KEY_LAYER_DIMS: layer_dims,
             DNN.KEY_KEEP_PROB: keep_prob,
             DNN.KEY_LEARNING_RATE: learning_rate,
             DNN.KEY_NUM_EPOCHS: num_epochs,
             DNN.KEY_MINI_BATCH_SIZE: minibatch_size,            
-            DNN.KEY_MOMENTUM: momentum
+            DNN.KEY_MOMENTUM: momentum,
+            DNN.KEY_MAX_NORM_CLIP: maxnorm_clip
         }
         return bundle
 
@@ -135,7 +95,8 @@ class DNN():
         self.__numEpochs = hyperparameters[DNN.KEY_NUM_EPOCHS]
         self.__dropoutKeepProb = hyperparameters[DNN.KEY_KEEP_PROB]
         self.__minibatchSize = hyperparameters[DNN.KEY_MINI_BATCH_SIZE] 
-        self.__momentum = hyperparameters[DNN.KEY_MOMENTUM]             
+        self.__momentum = hyperparameters[DNN.KEY_MOMENTUM]  
+        self.__maxnormClip = hyperparameters[DNN.KEY_MAX_NORM_CLIP]           
     
     def split_data_and_train(self, df, label, split_percent = 0.7, print_summary = True):        
         """
@@ -149,7 +110,7 @@ class DNN():
         (train_x, train_y, dev_x, dev_y) = DNN.split_data(df, label, split_percent)
         return self.train(train_x, train_y, dev_x, dev_y, print_summary)        
 
-    def train(self, X_train, Y_train, X_test, Y_test, print_summary = True):
+    def train(self, X_train, Y_train, X_test, Y_test, print_summary = True, id = 1):
         """
         Implements a L tensorflow neural network: LINEAR->RELU->LINEAR->RELU->...LINEAR->(SOFTMAX OR SIGMOID).
         Arguments:
@@ -180,7 +141,7 @@ class DNN():
         X_place = tf.placeholder(dtype=tf.float32, shape = (None, n_x)) 
         Y_place = tf.placeholder(dtype=tf.float32, shape = (None, n_y)) 
         parameters = self.__initialize_parameters(n_x)
-        forward_prop_place = self.__forward_propagation(X_place, parameters, keep_prob_tf)
+        forward_prop_place = self.__forward_propagation(X_place, parameters, keep_prob_tf, True)
         cost_func = self.__compute_cost(forward_prop_place, Y_place)            
         optimizer = tf.train.AdamOptimizer(learning_rate = self.__learningRate, beta1= self.__momentum).minimize(cost_func)                
 
@@ -207,6 +168,11 @@ class DNN():
                 if print_summary == True and epoch % 5 == 0: 
                     costs.append(epoch_cost)
 
+            print("Done Training!")
+            print("Saving model at " + DNN.__getSavePath(id))
+            saver = tf.train.Saver()
+            saver.save(sess, DNN.__getSavePath(id))
+            
             parameters = sess.run(parameters)
                     
             # Multi classifcation
@@ -248,12 +214,31 @@ class DNN():
                 DNN.KEY_RECALL : recall,
                 DNN.KEY_F1: f1score
             }
-            
-            print("Done training!")         
+                    
             print('')                   
 
         return result
-    
+
+    def predict(self, X, params):
+        """
+        Outputs prediction for given test set and parameters from training 
+        Arguments:
+            X -- test data
+            params -- parameters output from training 
+        Returns:
+            Predictions 
+        """
+        result = None      
+        keep_prob_tf = tf.placeholder(tf.float32)     
+        x_tf = tf.placeholder(dtype=tf.float32, shape = X.shape) 
+        Z = self.__forward_propagation(X, params, keep_prob_tf, False)       
+        
+        with tf.Session() as sess:
+            prediction = tf.argmax(Z, axis = 1)                                           
+            result = sess.run(tf.cast(prediction, 'float'), feed_dict = {x_tf: X, keep_prob_tf: 1.0})
+
+        return result
+
     def __initialize_parameters(self, n_x): 
         """
         Initializes parameters to build a neural network with tensorflow. 
@@ -290,7 +275,7 @@ class DNN():
                     
         return parameters
         
-    def __forward_propagation(self, X, parameters, keep_prob_tf): 
+    def __forward_propagation(self, X, parameters, keep_prob_tf, isTraining): 
         """
         Implements the forward propagation for the model: LINEAR -> RELU -> LINEAR -> RELU -> ... -> LINEAR -> SOFTMAX
         The following optimizations are included:
@@ -307,14 +292,18 @@ class DNN():
         """
         Z = None
         A = None  
-        # Typical values of clip range from 3 to 4 
-        maxnorm_clip = 4
+        
         for i in range(0, int(len(parameters)/2)):
             wKey = 'W' + str(i+1)
             bKey = 'b' + str(i+1)
             W = parameters[wKey]
-            b = parameters[bKey]            
-            W = tf.clip_by_norm(W, maxnorm_clip)
+            b = parameters[bKey]  
+
+            if isTraining:
+                W = tf.convert_to_tensor(W)
+                b = tf.convert_to_tensor(b)
+
+            W = tf.clip_by_norm(W, self.__maxnormClip)
 
             if i == 0:
                 Z = tf.add(tf.matmul(X, W), b)        
@@ -379,4 +368,8 @@ class DNN():
         with tf.Session() as sess:
             one_hot = sess.run(one_hot_matrix)
 
-        return one_hot       
+        return one_hot  
+
+    def __getSavePath(id):
+        PATH_SAVE = "./saved_model_" + str(id) + "/dnn"
+        return PATH_SAVE
