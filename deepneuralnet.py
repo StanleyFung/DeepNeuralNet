@@ -127,11 +127,14 @@ class DNN():
         title = "Binary" if self.__layerDims[-1] <= 2 else str(self.__layerDims[-1]) + "-class"
         title += " classification neural network with hyperparameters:"
         print(title)
-        print('layer_dims: {0} dropoutKeepProb: {1} learning_rate: {2} num_epochs: {3} minibatch_size: {4}'.format(str(self.__layerDims), 
+        print('layer_dims: {0} dropoutKeepProb: {1} learning_rate: {2} num_epochs: {3}'.format(str(self.__layerDims), 
             self.__dropoutKeepProb, 
             self.__learningRate,
-            self.__numEpochs, 
-            self.__minibatchSize))
+            self.__numEpochs))
+
+        print('minibatch_size: {0} momentum: {1} maxnormclip: {2}'.format(str(self.__minibatchSize), 
+            self.__momentum, 
+            self.__maxnormClip))
         
         tf_ops.reset_default_graph()
         keep_prob_tf = tf.placeholder(tf.float32)
