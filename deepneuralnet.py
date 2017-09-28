@@ -40,7 +40,7 @@ class DNN():
 
         return (x, y)
 
-    def create_hyperparameter_bundle(layer_dims, learning_rate = 0.0001, num_epochs = 1000, keep_prob = 1, minibatch_size = 64, momentum = 0.97, maxnorm_clip = 3):
+    def create_hyperparameter_bundle(layer_dims, learning_rate = 0.0001, num_epochs = 1000, keep_prob = 1, minibatch_size = 64, momentum = 0.97, maxnorm_clip = 4):
         bundle = {
             DNN.KEY_LAYER_DIMS: layer_dims,
             DNN.KEY_KEEP_PROB: keep_prob,
@@ -98,7 +98,7 @@ class DNN():
         self.__momentum = hyperparameters[DNN.KEY_MOMENTUM]  
         self.__maxnormClip = hyperparameters[DNN.KEY_MAX_NORM_CLIP]           
     
-    def split_data_and_train(self, df, label, split_percent = 0.7, print_summary = True):        
+    def split_data_and_train(self, df, label, split_percent = 0.7, print_summary = True, exp_id = 1):        
         """
         Splits data and trains model        
         Arguments:
@@ -108,9 +108,9 @@ class DNN():
             print_summary -- True for printing progress while training 
         """
         (train_x, train_y, dev_x, dev_y) = DNN.split_data(df, label, split_percent)
-        return self.train(train_x, train_y, dev_x, dev_y, print_summary)        
+        return self.train(train_x, train_y, dev_x, dev_y, print_summary, exp_id)        
 
-    def train(self, X_train, Y_train, X_test, Y_test, print_summary = True, id = 1):
+    def train(self, X_train, Y_train, X_test, Y_test, print_summary = True, exp_id = 1):
         """
         Implements a L tensorflow neural network: LINEAR->RELU->LINEAR->RELU->...LINEAR->(SOFTMAX OR SIGMOID).
         Arguments:
@@ -172,9 +172,9 @@ class DNN():
                     costs.append(epoch_cost)
 
             print("Done Training!")
-            print("Saving model at " + DNN.__getSavePath(id))
+            print("Saving model at " + DNN.__getSavePath(exp_id))
             saver = tf.train.Saver()
-            saver.save(sess, DNN.__getSavePath(id))
+            saver.save(sess, DNN.__getSavePath(exp_id))
             
             parameters = sess.run(parameters)
                     
@@ -373,6 +373,6 @@ class DNN():
 
         return one_hot  
 
-    def __getSavePath(id):
-        PATH_SAVE = "./saved_model_" + str(id) + "/dnn"
+    def __getSavePath(exp_id):
+        PATH_SAVE = "./saved_model_" + str(exp_id) + "/dnn"
         return PATH_SAVE
