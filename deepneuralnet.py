@@ -9,6 +9,7 @@ from tensorflow.python.framework import ops as tf_ops
 class DNN():
     """
     Easy to use Deep Neural Network library with Dropout and Maxnorm using tensorflow.
+    See https://www.cs.toronto.edu/~hinton/absps/JMLRdropout.pdf for explanation of dropout and maxnorm 
     
     Creating and training a model:
         1. Create a DNN with DNN(identifier = 1). Use an integer for the identifier 
