@@ -9,23 +9,36 @@ from tensorflow.python.framework import ops as tf_ops
 class DNN():
 
     # Keys for dictionary returned by train
-    KEY_PARAMETERS = "params"
-    KEY_ACCURACY_TRAIN = "accuracy_train"
-    KEY_ACCURACY_TEST = "accuracy_test"    
-    KEY_PRECISION = "precision"
-    KEY_RECALL = "recall"
-    KEY_F1 = "f1"  
+    KEY_PARAMETERS = "KEY_PARAMETERS"
+    KEY_ACCURACY_TRAIN = "KEY_ACCURACY_TRAIN"
+    KEY_ACCURACY_TEST = "KEY_ACCURACY_TEST"    
+    KEY_PRECISION = "KEY_PRECISION"
+    KEY_RECALL = "KEY_RECALL"
+    KEY_F1 = "KEY_F1"  
 
-    KEY_LAYER_DIMS = "layer_dims"
-    KEY_LEARNING_RATE = "learning_rate"
-    KEY_NUM_EPOCHS = "num_epochs"
-    KEY_KEEP_PROB = "keep_prob"
-    KEY_MINI_BATCH_SIZE = "minibatch_size"
-    KEY_MOMENTUM = "momentum"
-    KEY_MAX_NORM_CLIP = "maxnorm_clip"
+    KEY_LAYER_DIMS = "KEY_LAYER_DIMS"
+    KEY_LEARNING_RATE = "KEY_LEARNING_RATE"
+    KEY_NUM_EPOCHS = "KEY_NUM_EPOCHS"
+    KEY_DROPOUT_KEEP_PROB = "KEY_DROPOUT_KEEP_PROB"
+    KEY_MINI_BATCH_SIZE = "KEY_MINI_BATCH_SIZE"
+    KEY_ADAM_BETA1 = "KEY_ADAM_BETA1"
+    KEY_MAX_NORM_CLIP = "KEY_MAX_NORM_CLIP"
 
-    OPS_COST = "cost"
-    OPS_OPTIMIZER = "optimizer"
+    OPS_NUM_LAYERS = "OPS_NUM_LAYERS"
+    OPS_X = "OPS_X"
+    OPS_Y = "OPS_Y"
+    OPS_LEARNING_RATE= "OPS_LEARNING_RATE"        
+    OPS_DROPOUT_KEEP_PROB = "OPS_DROPOUT_KEEP_PROB"
+    OPS_MINIBATCH_SIZE = "OPS_MINIBATCH_SIZE"
+    OPS_ADAM_BETA1 = "OPS_ADAM_BETA1"
+    OPS_MAXNORM_CLIP = "OPS_MAXNORM_CLIP"
+    OPS_COST = "OPS_COST"
+    OPS_OPTIMIZER = "OPS_OPTIMIZER"
+    OPS_PREDICTION = "OPS_PREDICTION"
+    OPS_TRUE_VALUES = "OPS_TRUE_VALUES"
+    OPS_PREDICTIONS_CORRECT = "OPS_PREDICTIONS_CORRECT"
+    OPS_ACCURACY = "OPS_ACCURACY"
+    OPS_PREV_EPOCH = "OPS_PREV_EPOCH"
 
     # Utility methods for formating panda dataframes       
     @staticmethod
@@ -43,14 +56,13 @@ class DNN():
 
         return (x, y)
 
-    def create_hyperparameter_bundle(layer_dims, learning_rate = 0.0001, num_epochs = 1000, keep_prob = 1, minibatch_size = 64, momentum = 0.97, maxnorm_clip = 4):
+    def create_hyperparameter_bundle(layer_dims, learning_rate = 0.0001, keep_prob = 1.0, minibatch_size = 64, beta1 = 0.97, maxnorm_clip = 4):
         bundle = {
             DNN.KEY_LAYER_DIMS: layer_dims,
-            DNN.KEY_KEEP_PROB: keep_prob,
-            DNN.KEY_LEARNING_RATE: learning_rate,
-            DNN.KEY_NUM_EPOCHS: num_epochs,
+            DNN.KEY_DROPOUT_KEEP_PROB: keep_prob,
+            DNN.KEY_LEARNING_RATE: learning_rate,            
             DNN.KEY_MINI_BATCH_SIZE: minibatch_size,            
-            DNN.KEY_MOMENTUM: momentum,
+            DNN.KEY_ADAM_BETA1: beta1,
             DNN.KEY_MAX_NORM_CLIP: maxnorm_clip
         }
         return bundle
@@ -67,25 +79,10 @@ class DNN():
         print("dev_y.shape: " + str(dev_y.shape))
         return (train_x, train_y, dev_x, dev_y)
 
-    def __init__(self):              
-        self.__layerDims = None        
-        self.__learningRate = None
-        self.__numEpochs = None
-        self.__dropoutKeepProb = None
-        self.__minibatchSize = None
-        self.__momentum = None
-        self.__maxnormClip = None 
-        self.__tf_keep_prob = None 
-        self.__tf_X_place = None
-        self.__tf_Y_place = None
-        self.__tf_parameters = None
-        self.__tf_Z_last = None
-        self.__tf_cost_func = None            
-        self.__tf_optimizer = None        
-        self.__tf_prediction = None        
-        self.__tf_true_values = None        
-        self.__tf_predictions_correct = None
-        self.__tf_accuracy= None
+    def __init__(self, identifier = 1):  
+        tf_ops.reset_default_graph() 
+        self.__id = identifier  
+        self.__previousEpoch = 0
         self.__hyperparams_set = False
         self.__configured = False
     
@@ -96,8 +93,7 @@ class DNN():
                                     EG. layers_dims = [25, 7, 5, 1] 
                                     this would be a DNN of n_X -> 25 -> 7 -> 5 -> 1
                                     if number of nodes in last layer is > 1, we expect a multi class output                            
-                learning_rate -- learning rate of the optimization
-                num_epochs -- number of epochs of the optimization loop
+                learning_rate -- learning rate of the optimization                
                 keep_prob -- value from 0 - 1: probability a node is kept in the neural net during dropout
                 minibatch_size -- size of a minibatch    
             }
@@ -116,53 +112,131 @@ class DNN():
             return 
 
         print("Setting hyperparameters...")
-        self.__layerDims = hyperparameters[DNN.KEY_LAYER_DIMS]        
-        self.__learningRate = hyperparameters[DNN.KEY_LEARNING_RATE]
-        self.__numEpochs = hyperparameters[DNN.KEY_NUM_EPOCHS]
-        self.__dropoutKeepProb = hyperparameters[DNN.KEY_KEEP_PROB]
-        self.__minibatchSize = hyperparameters[DNN.KEY_MINI_BATCH_SIZE] 
-        self.__momentum = hyperparameters[DNN.KEY_MOMENTUM]  
-        self.__maxnormClip = hyperparameters[DNN.KEY_MAX_NORM_CLIP]   
+        if DNN.KEY_LAYER_DIMS in hyperparameters:
+            self.__layerDims = hyperparameters[DNN.KEY_LAYER_DIMS]             
+            self.__tf_numLayers = tf.Variable(len(self.__layerDims),  trainable = False) 
+        if DNN.KEY_LEARNING_RATE in hyperparameters:                    
+            self.__tf_learningRate = tf.Variable(hyperparameters[DNN.KEY_LEARNING_RATE], trainable = False)
+        if DNN.KEY_DROPOUT_KEEP_PROB in hyperparameters:
+            self.__tf_dropoutKeepProb = tf.Variable(hyperparameters[DNN.KEY_DROPOUT_KEEP_PROB], trainable = False)             
+        if DNN.KEY_MINI_BATCH_SIZE in hyperparameters:            
+            self.__tf_minibatchSize = tf.Variable(hyperparameters[DNN.KEY_MINI_BATCH_SIZE], trainable = False)   
+        if DNN.KEY_ADAM_BETA1 in hyperparameters:            
+            self.__tf_adam_beta1 = tf.Variable(hyperparameters[DNN.KEY_ADAM_BETA1], trainable = False)        
+        if DNN.KEY_MAX_NORM_CLIP in hyperparameters:
+            self.__tf_maxnormClip = tf.Variable(float(hyperparameters[DNN.KEY_MAX_NORM_CLIP]), trainable = False)               
+        
+        tf.add_to_collection(DNN.OPS_LEARNING_RATE, self.__tf_learningRate)            
+        tf.add_to_collection(DNN.OPS_DROPOUT_KEEP_PROB, self.__tf_dropoutKeepProb)         
+        tf.add_to_collection(DNN.OPS_MAXNORM_CLIP, self.__tf_maxnormClip)       
+        tf.add_to_collection(DNN.OPS_ADAM_BETA1, self.__tf_adam_beta1)
+        tf.add_to_collection(DNN.OPS_MINIBATCH_SIZE, self.__tf_minibatchSize)        
         self.__hyperparams_set = True        
 
-    def __configure_graph(self, n_x, n_y, exp_id):        
+    def configure_graph(self, train_x, train_y): 
+        n_x = train_x.shape[1]
+        n_y = train_y.shape[1]
+
         if not self.__hyperparams_set:
             print("Must set hyperparameters first using set_hyperparameters")
         else:
-            print("Configuring graph...")
-            tf_ops.reset_default_graph() 
-            self.__tf_keep_prob = tf.placeholder(dtype=tf.float32)
+            print("Configuring graph...")          
             self.__tf_X_place = tf.placeholder(dtype=tf.float32, shape = (None, n_x)) 
             self.__tf_Y_place = tf.placeholder(dtype=tf.float32, shape = (None, n_y)) 
             self.__tf_parameters = self.__initialize_parameters(n_x)
-            self.__tf_Z_last = self.__forward_propagation(self.__tf_X_place, self.__tf_parameters, self.__tf_keep_prob, True)        
+            self.__tf_Z_last = self.__forward_propagation(True)        
             self.__tf_cost_func =  tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits = self.__tf_Z_last, labels = self.__tf_Y_place))
-            self.__tf_optimizer = tf.train.AdamOptimizer(learning_rate = self.__learningRate, beta1= self.__momentum).minimize(self.__tf_cost_func)                           
+            self.__tf_optimizer = tf.train.AdamOptimizer(learning_rate = self.__tf_learningRate, beta1=self.__tf_adam_beta1).minimize(self.__tf_cost_func)                           
             self.__tf_prediction = tf.argmax(self.__tf_Z_last, axis = 1)
             self.__tf_true_values = tf.argmax(self.__tf_Y_place, axis = 1)
             self.__tf_predictions_correct = tf.equal(self.__tf_prediction, self.__tf_true_values)
             self.__tf_accuracy = tf.reduce_mean(tf.cast(self.__tf_predictions_correct, "float"))                
+            self.__tf_previous_epoch = tf.Variable(self.__previousEpoch, trainable = False)   
+                            
+            tf.add_to_collection(DNN.OPS_NUM_LAYERS, self.__tf_numLayers)
+            tf.add_to_collection(DNN.OPS_X, self.__tf_X_place)
+            tf.add_to_collection(DNN.OPS_Y, self.__tf_Y_place)
+            tf.add_to_collection(DNN.OPS_COST, self.__tf_cost_func)
+            tf.add_to_collection(DNN.OPS_OPTIMIZER, self.__tf_optimizer)
+            tf.add_to_collection(DNN.OPS_PREDICTION, self.__tf_prediction)
+            tf.add_to_collection(DNN.OPS_TRUE_VALUES, self.__tf_true_values)
+            tf.add_to_collection(DNN.OPS_PREDICTIONS_CORRECT, self.__tf_predictions_correct)
+            tf.add_to_collection(DNN.OPS_ACCURACY, self.__tf_accuracy)
+            tf.add_to_collection(DNN.OPS_PREV_EPOCH, self.__tf_previous_epoch)
             self.__configured = True
+    
+    def restore_saved_model(self, exp_id, epoch):        
+        with tf.Session() as sess:                                        
+            checkpoint_dir = DNN.__getSavePathWithEpoch(exp_id, epoch)           
+            saver = tf.train.import_meta_graph(checkpoint_dir + ".meta")            
+            saver.restore(sess, checkpoint_dir)         
+            self.__id = exp_id
+            self.__tf_X_place = tf.get_collection(DNN.OPS_X)[0]
+            self.__tf_Y_place = tf.get_collection(DNN.OPS_Y)[0]
+            self.__tf_learningRate = tf.get_collection(DNN.OPS_LEARNING_RATE)[0]              
+            self.__tf_dropoutKeepProb = tf.get_collection(DNN.OPS_DROPOUT_KEEP_PROB)[0]                 
+            self.__tf_maxnormClip= tf.get_collection(DNN.OPS_MAXNORM_CLIP)[0]         
+            self.__tf_adam_beta1 = tf.get_collection(DNN.OPS_ADAM_BETA1)[0]        
+            self.__tf_minibatchSize= tf.get_collection(DNN.OPS_MINIBATCH_SIZE)[0]               
+            self.__tf_cost_func = tf.get_collection(DNN.OPS_COST)[0]
+            self.__tf_optimizer = tf.get_collection(DNN.OPS_OPTIMIZER)[0]
+            self.__tf_prediction = tf.get_collection(DNN.OPS_PREDICTION)[0]
+            self.__tf_true_values = tf.get_collection(DNN.OPS_TRUE_VALUES)[0]
+            self.__tf_predictions_correct = tf.get_collection(DNN.OPS_PREDICTIONS_CORRECT)[0]
+            self.__tf_accuracy = tf.get_collection(DNN.OPS_ACCURACY)[0]
+            self.__tf_previous_epoch = tf.get_collection(DNN.OPS_PREV_EPOCH)[0]
+            self.__previousEpoch = self.__tf_previous_epoch.eval()
 
-    def set_hyperparams_split_data_configure_train(self, hyperparams, df, label, split_percent = 0.7, print_summary = True, exp_id = 1, checkpoint_interval = 200):        
+            numLayers_tf = tf.get_collection(DNN.OPS_NUM_LAYERS)[0]
+            numLayers = sess.run(numLayers_tf)
+            parameters_tf = {}
+            self.__layerDims = []
+            for indx in range(0, numLayers):
+                wKey = "W" + str(indx+1)
+                bKey = "b" + str(indx+1)                
+                parameters_tf[wKey] = tf.get_collection(wKey)[0]
+                parameters_tf[bKey] = tf.get_collection(bKey)[0]
+                self.__layerDims .append(parameters_tf[bKey].shape[1])
+
+            self.__tf_parameters = parameters_tf 
+            self.__parameters = sess.run(parameters_tf)           
+            self.__configured = True
+            self.__hyperparams_set = True                
+
+    def set_hyperparams_split_data_configure_train(self, hyperparams, df, label, num_epochs, split_percent = 0.7, print_summary = True, checkpoint_interval = 200):        
         self.set_hyperparameters(hyperparams)
-        return self.split_data_configure_train(df, label, split_percent, print_summary, exp_id, checkpoint_interval)
+        return self.split_data_configure_train(df, label, split_percent, print_summary, checkpoint_interval)
 
-    def split_data_configure_train(self, df, label, split_percent = 0.7, print_summary = True, exp_id = 1, checkpoint_interval = 200):        
+    def split_data_configure_train(self, df, label, num_epochs, split_percent = 0.7, print_summary = True, checkpoint_interval = 200):        
         """
-        Splits data and trains model        
         Arguments:
             df -- pandas dataframe of shape (num_examples, num_inputs)
             label -- column name of labels
+            num_epochs -- number of times to train
             split_percent -- amount to split for train and dev set
             print_summary -- True for printing progress while training 
         """
         print("Splitting data...")
         (train_x, train_y, dev_x, dev_y) = DNN.split_data(df, label, split_percent)        
-        self.__configure_graph(train_x.shape[1], train_y.shape[1], exp_id)
-        return self.train(train_x, train_y, dev_x, dev_y, print_summary, exp_id, checkpoint_interval)        
+        self.configure_graph(train_x, train_y)
+        return self.train(train_x, train_y, dev_x, dev_y, num_epochs, print_summary, checkpoint_interval)        
 
-    def train(self, X_train, Y_train, X_test, Y_test, print_summary = True, exp_id = 1, checkpoint_interval = 200):
+    def split_data_train(self, df, label, num_epochs, split_percent = 0.7, print_summary = True, checkpoint_interval = 200):        
+        """
+        Splits data and trains model, use if restoring a saved model and want to keep training without
+        having to set any hyperparameters again        
+        Arguments:
+            df -- pandas dataframe of shape (num_examples, num_inputs)
+            label -- column name of labels
+            split_percent -- amount to split for train and dev set
+            num_epochs -- number of times to train
+            print_summary -- True for printing progress while training 
+        """
+        print("Splitting data...")
+        (train_x, train_y, dev_x, dev_y) = DNN.split_data(df, label, split_percent)                
+        return self.train(train_x, train_y, dev_x, dev_y, num_epochs, print_summary, checkpoint_interval)   
+
+    def train(self, X_train, Y_train, X_test, Y_test, num_epochs, print_summary = True, checkpoint_interval = 200):
         """
         Implements a L tensorflow neural network: LINEAR->RELU->LINEAR->RELU->...LINEAR->(SOFTMAX OR SIGMOID).
         Arguments:
@@ -170,74 +244,83 @@ class DNN():
             Y_train -- test set, of shape (m_train, n_y)
             X_test -- training set, of shape (m_test, n_x)
             Y_test -- test set, of shape (m_test, n_y)
+            num_epochs -- number of times to train
             print_summary -- True to print info and progress during and after training
         Returns:
             result -- parameters learnt by the model. They can then be used to predict.
                       accuracy on training and test,
                       recall, precision, f1
         """
-        if not self.__hyperparams_set or not self.__configured:
-            print ("Must set hyper parameters and configure network for data first!")
-            return None
-
-        print("Experiment ID: " + str(exp_id))
-        title = "Binary" if self.__layerDims[-1] <= 2 else str(self.__layerDims[-1]) + "-class"
-        title += " classification neural network with hyperparameters:"
-        print(title)
-        print('layer_dims: {0} dropoutKeepProb: {1} learning_rate: {2} num_epochs: {3}'.format(str(self.__layerDims), 
-            self.__dropoutKeepProb, 
-            self.__learningRate,
-            self.__numEpochs))
-
-        print('minibatch_size: {0} momentum: {1} maxnormclip: {2}'.format(str(self.__minibatchSize), 
-            self.__momentum, 
-            self.__maxnormClip))
-             
-        (m_train_X, _) = X_train.shape
-        (m_train_Y, _) = Y_train.shape
-
-        if m_train_X != m_train_Y:
-            print("Number of examples for training data in X and Y must be equal")
-            return None
-
-        m_train = m_train_X
-
-        (m_test_X, _) = X_test.shape
-        (m_test_Y, _) = Y_test.shape
-
-        if m_test_X != m_test_Y:
-            print("Number of examples for test data in X and Y must be equal")
-            return None
-
-        costs = []
-
-        with tf.Session() as sess:            
-            print("Initializing graph...")
+        result = None
+        with tf.Session() as sess: 
+            if not self.__hyperparams_set:
+                print ("Must set hyper parameters!")
+                return None
+            if not self.__configured:
+                print ("Must configure network!")
+                return None   
+                          
             sess.run(tf.global_variables_initializer())
+
+            print("Model ID: " + str(self.__id))
+            title = "Binary" if self.__layerDims[-1] <= 2 else str(self.__layerDims[-1]) + "-class"
+            title += " classification neural network with hyperparameters:"
+            print(title)
+            print('layer_dims: {0} dropoutKeepProb: {1} learning_rate: {2} num_epochs: {3}'.format(self.__layerDims, 
+                self.__tf_dropoutKeepProb.eval(), 
+                self.__tf_learningRate.eval(),
+                num_epochs))
+
+            print('minibatch_size: {0} momentum: {1} maxnormclip: {2}'.format(self.__tf_minibatchSize.eval(), 
+                self.__tf_adam_beta1.eval(), 
+                self.__tf_maxnormClip.eval()))
+                 
+            (m_train_X, _) = X_train.shape
+            (m_train_Y, _) = Y_train.shape
+
+            if m_train_X != m_train_Y:
+                print("Number of examples for training data in X and Y must be equal")
+                return None
+
+            m_train = m_train_X
+
+            (m_test_X, _) = X_test.shape
+            (m_test_Y, _) = Y_test.shape
+
+            if m_test_X != m_test_Y:
+                print("Number of examples for test data in X and Y must be equal")
+                return None
+
+            costs = []
+             
             saver = tf.train.Saver()
+
             # Initial saving of all variables and meta graph
-            saver.save(sess, DNN.__getSavePath(exp_id), global_step = 0)
-            print("Saving metagraph to " + DNN.__getSavePath(exp_id))
-
+            saver.save(sess, DNN.__getSavePath(self.__id))
+            print("Saving metagraph to " + DNN.__getSavePath(self.__id))
+            
+            feed_dict = {}
+            savedEpoch = self.__previousEpoch
+            
+            if savedEpoch != 0:
+                print("Resuming training from previous epoch of {0}".format(savedEpoch))            
+            
             print("Training underway...")
-            for epoch in range(self.__numEpochs):
-                epoch_cost = 0.
-
-                if self.__minibatchSize < m_train:
-                    num_minibatches = int(math.floor(m_train / self.__minibatchSize)) 
-                    minibatches = self.__random_mini_batches(X_train, Y_train, self.__minibatchSize)
+            for epoch in range(num_epochs):
+                epoch_cost = 0.     
+                if self.__tf_minibatchSize.eval() < m_train:
+                    num_minibatches = int(math.floor(m_train / self.__tf_minibatchSize.eval())) 
+                    minibatches = self.__random_mini_batches(X_train, Y_train, self.__tf_minibatchSize.eval())
                     for minibatch in minibatches: 
                         (minibatch_X, minibatch_Y) = minibatch  
-
-                        _ , minibatch_cost = sess.run([self.__tf_optimizer, self.__tf_cost_func], 
-                            feed_dict = { self.__tf_X_place: minibatch_X, self.__tf_Y_place: minibatch_Y, 
-                            self.__tf_keep_prob: self.__dropoutKeepProb})   
-
+                        feed_dict[self.__tf_X_place] = minibatch_X
+                        feed_dict[self.__tf_Y_place] = minibatch_Y
+                        _ , minibatch_cost = sess.run([self.__tf_optimizer, self.__tf_cost_func], feed_dict = feed_dict)   
                         epoch_cost += minibatch_cost / num_minibatches
                 else:
-                    _ , batch_cost = sess.run([optimizer, cost_func], feed_dict = { self.__tf_X_place: X_train, 
-                        self.__tf_Y_place: Y_train, self.__tf_keep_prob: self.__dropoutKeepProb})   
-
+                    feed_dict[self.__tf_X_place] = X_train
+                    feed_dict[self.__tf_Y_place] = Y_train
+                    _ , batch_cost = sess.run([self.__tf_optimizer, self.__tf_cost_func], feed_dict = feed_dict)   
                     epoch_cost += batch_cost
 
                 if print_summary == True and epoch % 20 == 0:
@@ -245,22 +328,33 @@ class DNN():
                 if print_summary == True and epoch % 5 == 0: 
                     costs.append(epoch_cost)
 
-                if epoch > 0 and epoch % checkpoint_interval == 0:
-                    saver.save(sess, DNN.__getSavePath(exp_id), global_step = epoch, write_meta_graph=False)
-                    print("Saving checkpoint at epoch: " + str(epoch))
+                if epoch > 0 and epoch % checkpoint_interval == 0: 
+                    epochToSave = epoch + savedEpoch                                   
+                    self.__tf_previous_epoch = tf.assign(self.__tf_previous_epoch, epochToSave)   
+                    print("epoch to save {0}".format(self.__tf_previous_epoch.eval()))                  
+                    saver.save(sess, DNN.__getSavePath(self.__id), global_step = epochToSave)                
+                    print("Saving checkpoint at epoch: " + str(epochToSave))
             
-            saver.save(sess, DNN.__getSavePath(exp_id),  global_step = self.__numEpochs, write_meta_graph=False)
-            print("Saving checkpoint at epoch: " + str(self.__numEpochs))
+            epochToSave = num_epochs + savedEpoch                   
+            self.__tf_previous_epoch = tf.assign(self.__tf_previous_epoch, epochToSave) 
+            print("epoch to save {0}".format(self.__tf_previous_epoch.eval()))
+            saver.save(sess, DNN.__getSavePath(self.__id),  global_step = epochToSave)
+            print("Saving checkpoint at epoch: " + str(epochToSave))
             print("Done Training!")                      
             
-            parameters = sess.run(self.__tf_parameters)
-                    
+            self.__parameters = sess.run(self.__tf_parameters)
+            feed_dict[self.__tf_X_place] = X_train
+            feed_dict[self.__tf_Y_place] = Y_train
+            feed_dict[self.__tf_dropoutKeepProb] = 1.0
+            
             # Calculate accuracy     
-            train_accuracy = 100 * self.__tf_accuracy.eval({self.__tf_X_place: X_train, self.__tf_Y_place: Y_train, self.__tf_keep_prob: 1.0})        
-            test_accuracy = 100 * self.__tf_accuracy.eval({self.__tf_X_place: X_test, self.__tf_Y_place: Y_test, self.__tf_keep_prob: 1.0})      
+            train_accuracy = 100 * self.__tf_accuracy.eval(feed_dict)   
+            feed_dict[self.__tf_X_place] = X_test
+            feed_dict[self.__tf_Y_place] = Y_test     
+            test_accuracy = 100 * self.__tf_accuracy.eval(feed_dict)
            
-            prediction_values_test = self.__tf_prediction.eval({self.__tf_X_place: X_test, self.__tf_keep_prob: 1.0})                    
-            true_values_test = self.__tf_true_values.eval({self.__tf_Y_place: Y_test, self.__tf_keep_prob: 1.0})
+            prediction_values_test = self.__tf_prediction.eval(feed_dict)
+            true_values_test = self.__tf_true_values.eval(feed_dict)
             
             precision = 100 * sklearn.precision_score(true_values_test, prediction_values_test, average='micro')
             recall = 100 * sklearn.recall_score(true_values_test, prediction_values_test, average='micro')
@@ -270,7 +364,7 @@ class DNN():
                 plt.plot(np.squeeze(costs))
                 plt.ylabel('cost')
                 plt.xlabel('iterations (per tens)')
-                plt.title("Learning rate =" + str(self.__learningRate))
+                plt.title("Learning rate =" + str(self.__tf_learningRate.eval()))
                 plt.show()
 
                 print("train_accuracy_percent" + " : " + str(train_accuracy))
@@ -281,7 +375,7 @@ class DNN():
                 print("f1score" + " : " + str(f1score))        
 
             result = {
-                DNN.KEY_PARAMETERS: parameters,
+                DNN.KEY_PARAMETERS: self.__parameters,
                 DNN.KEY_ACCURACY_TRAIN: train_accuracy,
                 DNN.KEY_ACCURACY_TEST : test_accuracy,                
                 DNN.KEY_PRECISION : precision,
@@ -289,27 +383,34 @@ class DNN():
                 DNN.KEY_F1: f1score
             }
                     
-            print('')                   
+        print('')  
+        return result                 
 
-        return result
-
-    def predict(self, X, params):
+    def predict(self, X):
         """
         Outputs prediction for given test set and parameters from training 
         Arguments:
             X -- test data
-            params -- parameters output from training 
         Returns:
             Predictions 
         """
-        result = None      
-        keep_prob_tf = tf.placeholder(tf.float32)     
-        x_tf = tf.placeholder(dtype=tf.float32, shape = X.shape) 
-        Z = self.__forward_propagation(X, params, keep_prob_tf, False)       
+        result = None       
         
-        with tf.Session() as sess:
+        if self.__parameters is None:
+            print("Cannot predict without training model first!")      
+            return result
+
+        Z = self.__forward_propagation(False)
+
+        with tf.Session() as sess:            
+            sess.run(tf.global_variables_initializer())
+
+            feed_dict = {
+                self.__tf_X_place: X,                 
+                self.__tf_dropoutKeepProb: 1.0               
+            }
             prediction = tf.argmax(Z, axis = 1)                                           
-            result = sess.run(tf.cast(prediction, 'float'), feed_dict = {x_tf: X, keep_prob_tf: 1.0})
+            result = sess.run(tf.cast(prediction, 'float'), feed_dict = feed_dict)
 
         return result
 
@@ -342,14 +443,16 @@ class DNN():
                 b = tf.get_variable(bKey, [1, item], initializer = tf.zeros_initializer())            
             else:
                 W = tf.get_variable(wKey, [self.__layerDims[indx - 1], item], initializer = tf.contrib.layers.xavier_initializer())
-                b = tf.get_variable(bKey, [1, item], initializer = tf.zeros_initializer())            
-            
+                b = tf.get_variable(bKey, [1, item], initializer = tf.zeros_initializer())    
+                     
+            tf.add_to_collection(wKey, W)   
+            tf.add_to_collection(bKey, b)  
             parameters[wKey] = W
             parameters[bKey] = b
 
         return parameters
         
-    def __forward_propagation(self, X, parameters, keep_prob_tf, isTraining): 
+    def __forward_propagation(self, isTraining): 
         """
         Implements the forward propagation for the model: LINEAR -> RELU -> LINEAR -> RELU -> ... -> LINEAR -> SOFTMAX
         The following optimizations are included:
@@ -366,25 +469,30 @@ class DNN():
         """
         Z = None
         A = None  
-        
+
+        if isTraining:
+            parameters = self.__tf_parameters
+        else:
+            parameters = self.__parameters
+
         for i in range(0, int(len(parameters)/2)):
             wKey = 'W' + str(i+1)
             bKey = 'b' + str(i+1)
             W = parameters[wKey]
-            b = parameters[bKey]  
+            b = parameters[bKey]              
             
             if not isTraining:
                 W = tf.convert_to_tensor(W)
                 b = tf.convert_to_tensor(b)
 
-            W = tf.clip_by_norm(W, self.__maxnormClip)
+            W = tf.clip_by_norm(W, self.__tf_maxnormClip)
 
             if i == 0:
-                Z = tf.add(tf.matmul(X, W), b)        
+                Z = tf.add(tf.matmul(self.__tf_X_place, W), b)        
             else:     
                 Z = tf.add(tf.matmul(A, W), b)                         
             
-            A = tf.nn.dropout(tf.nn.relu(Z), keep_prob_tf) 
+            A = tf.nn.dropout(tf.nn.relu(Z), self.__tf_dropoutKeepProb) 
      
         return Z
     
@@ -432,6 +540,8 @@ class DNN():
 
         return one_hot  
 
-    def __getSavePath(exp_id):
-        PATH_SAVE = "./saved_model_" + str(exp_id) + "/dnn"
-        return PATH_SAVE
+    def __getSavePath(exp_id):        
+        return "./saved_model_{0}/dnn".format(exp_id)
+
+    def __getSavePathWithEpoch(exp_id, epoch):        
+        return "./saved_model_{0}/dnn-{1}".format(exp_id, epoch)
