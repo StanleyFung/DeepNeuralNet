@@ -8,9 +8,9 @@ from tensorflow.python.framework import ops as tf_ops
 
 class DNN():
     """
-    Easy to use Deep Neural Network library with Dropout and Maxnorm using tensorflow.
+    Easy to use Deep Neural Network library with Dropout, Maxnorm, Batch Normalization using tensorflow.
     See https://www.cs.toronto.edu/~hinton/absps/JMLRdropout.pdf for explanation of dropout and maxnorm 
-    
+    See https://arxiv.org/pdf/1502.03167v3.pdf for explanation of batch norm
     Creating and training a model:
         1. Create a DNN with DNN(identifier = 1). Use an integer for the identifier 
         2. Retrieve the data you want in a Pandas dataframe 
@@ -66,6 +66,8 @@ class DNN():
     OPS_PREDICTIONS_CORRECT = "OPS_PREDICTIONS_CORRECT"
     OPS_ACCURACY = "OPS_ACCURACY"
     OPS_PREV_EPOCH = "OPS_PREV_EPOCH"
+    OPS_BATCH_NORM_POP_MEAN = "OPS_BATCH_NORM_POP_MEAN"
+    OPS_BATCH_NORM_POP_VARIANCE = "OPS_BATCH_NORM_POP_VARIANCE"
 
     def create_hyperparameter_bundle(layer_dims, learning_rate = 0.0001, dropout_keep_prob = 1.0, dropout_maxnorm_clip = 4, beta1 = 0.97, minibatch_size = 64):
         """
@@ -166,7 +168,8 @@ class DNN():
         tf.add_to_collection(DNN.OPS_DROPOUT_KEEP_PROB, self.__tf_dropoutKeepProb)         
         tf.add_to_collection(DNN.OPS_MAXNORM_CLIP, self.__tf_maxnormClip)       
         tf.add_to_collection(DNN.OPS_ADAM_BETA1, self.__tf_adam_beta1)
-        tf.add_to_collection(DNN.OPS_MINIBATCH_SIZE, self.__tf_minibatchSize)        
+        tf.add_to_collection(DNN.OPS_MINIBATCH_SIZE, self.__tf_minibatchSize)      
+
         self.__hyperparams_set = True        
 
     def configure_graph(self, train_x, train_y): 
@@ -193,7 +196,7 @@ class DNN():
             self.__tf_true_values = tf.argmax(self.__tf_Y_place, axis = 1)
             self.__tf_predictions_correct = tf.equal(self.__tf_prediction, self.__tf_true_values)
             self.__tf_accuracy = tf.reduce_mean(tf.cast(self.__tf_predictions_correct, "float"))                
-            self.__tf_previous_epoch = tf.Variable(self.__previous_epoch, trainable = False)   
+            self.__tf_previous_epoch = tf.Variable(self.__previous_epoch, trainable = False)  
                             
             tf.add_to_collection(DNN.OPS_NUM_LAYERS, self.__tf_numLayers)
             tf.add_to_collection(DNN.OPS_X, self.__tf_X_place)
@@ -205,6 +208,14 @@ class DNN():
             tf.add_to_collection(DNN.OPS_PREDICTIONS_CORRECT, self.__tf_predictions_correct)
             tf.add_to_collection(DNN.OPS_ACCURACY, self.__tf_accuracy)
             tf.add_to_collection(DNN.OPS_PREV_EPOCH, self.__tf_previous_epoch)
+
+            # Batch norm
+            self.__tf_batch_norm_pop_mean = tf.Variable(tf.zeros([n_x]), trainable=False)
+            self.__tf_batch_norm_pop_var = tf.Variable(tf.ones([n_x]), trainable=False)  
+
+            tf.add_to_collection(DNN.OPS_BATCH_NORM_POP_MEAN, self.__tf_batch_norm_pop_mean)
+            tf.add_to_collection(DNN.OPS_BATCH_NORM_POP_VARIANCE, self.__tf_batch_norm_pop_var)
+
             self.__configured = True
     
     def restore_saved_model(self, identifier, epoch):   
@@ -234,6 +245,9 @@ class DNN():
             self.__tf_accuracy = tf.get_collection(DNN.OPS_ACCURACY)[0]
             self.__tf_previous_epoch = tf.get_collection(DNN.OPS_PREV_EPOCH)[0]
             self.__previous_epoch = self.__tf_previous_epoch.eval()
+
+            self.__tf_batch_norm_pop_mean = tf.get_collection(DNN.OPS_BATCH_NORM_POP_MEAN)[0]
+            self.__tf_batch_norm_pop_var = tf.get_collection(DNN.OPS_BATCH_NORM_POP_VARIANCE)[0]
 
             numLayers_tf = tf.get_collection(DNN.OPS_NUM_LAYERS)[0]
             numLayers = sess.run(numLayers_tf)
@@ -543,6 +557,9 @@ class DNN():
         else:
             parameters = self.__parameters
 
+        decay = 0.999
+        epsilon = 1e-3
+
         for i in range(0, int(len(parameters)/2)):
             wKey = 'W' + str(i+1)
             bKey = 'b' + str(i+1)
@@ -556,12 +573,36 @@ class DNN():
             W = tf.clip_by_norm(W, self.__tf_maxnormClip)
 
             if i == 0:
-                Z = tf.add(tf.matmul(self.__tf_X_place, W), b)        
+                Z = tf.matmul(self.__tf_X_place, W)      
             else:     
-                Z = tf.add(tf.matmul(A, W), b)                         
-            
-            A = tf.nn.dropout(tf.nn.relu(Z), self.__tf_dropoutKeepProb) 
-     
+                Z = tf.matmul(A, W)                        
+
+            batch_norm_scale = tf.Variable(tf.ones([Z.shape[-1]]))
+            batch_norm_beta = tf.Variable(tf.zeros([Z.shape[-1]]))
+            # Z = tf.add(Z, b)   
+            if isTraining:
+                batch_mean, batch_var = tf.nn.moments(Z,[0])
+
+                train_mean = tf.assign(self.__tf_batch_norm_pop_mean,
+                                       self.__tf_batch_norm_pop_mean * decay + batch_mean * (1 - decay))
+                train_var = tf.assign(self.__tf_batch_norm_pop_var,
+                                      self.__tf_batch_norm_pop_var * decay + batch_var * (1 - decay))
+
+                with tf.control_dependencies([train_mean, train_var]):
+                    Z = tf.nn.batch_normalization(Z,
+                        batch_mean, batch_var, 
+                        batch_norm_beta, 
+                        batch_norm_scale, 
+                        epsilon)
+            else:
+                Z = tf.nn.batch_normalization(Z,
+                    self.__tf_batch_norm_pop_mean, 
+                    self.__tf_batch_norm_pop_var, 
+                    batch_norm_beta, 
+                    batch_norm_scale, epsilon)
+
+            A = tf.nn.dropout(tf.nn.relu(Z), self.__tf_dropoutKeepProb)             
+        
         return Z
     
     def __random_mini_batches(self, X, Y, minibatch_size): 
